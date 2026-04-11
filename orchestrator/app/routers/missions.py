@@ -202,11 +202,11 @@ async def launch_fix(req: LaunchRequest):
             for step_id, label in zip(fix_steps, labels):
                 await _asyncio.sleep(1.5)
                 await mission_store.update_telemetry_step(req.mission_id, step_id, "completed", f"Simulated: {label}")
-            pr_url = f"https://github.com/{settings.target_repo}/pull/{mission.issue_number}"
+            # Use issue URL for demo — a real Devin session would create an actual PR
             await mission_store.update_mission(
                 req.mission_id,
                 status=MissionStatus.MISSION_COMPLETE,
-                pr_url=pr_url,
+                pr_url=mission.issue_url,
                 completed_at=time.time(),
             )
 
