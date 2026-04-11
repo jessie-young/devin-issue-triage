@@ -1,0 +1,82 @@
+export type MissionStatus =
+  | 'QUEUED'
+  | 'INVESTIGATING'
+  | 'INVESTIGATION_COMPLETE'
+  | 'LAUNCHING'
+  | 'FIX_IN_PROGRESS'
+  | 'MISSION_COMPLETE'
+  | 'ROUTED'
+  | 'CLOSED'
+  | 'FAILED';
+
+export type MissionClassification = 'STRIKE' | 'ASSIST' | 'COMMAND';
+
+export interface TelemetryStep {
+  id: string;
+  label: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'failed';
+  timestamp: number | null;
+  detail: string | null;
+}
+
+export interface InvestigationReport {
+  relevant_files: string[];
+  git_history: string[];
+  root_cause: string;
+  complexity: string;
+  fix_confidence: number;
+  related_issues: number[];
+  classification: MissionClassification | null;
+  summary: string;
+  recommended_fix: string;
+}
+
+export interface Mission {
+  id: string;
+  issue_number: number;
+  issue_title: string;
+  issue_body: string;
+  issue_url: string;
+  issue_labels: string[];
+  status: MissionStatus;
+  classification: MissionClassification | null;
+  devin_session_id: string | null;
+  fix_session_id: string | null;
+  investigation_report: InvestigationReport | null;
+  telemetry: TelemetryStep[];
+  pr_url: string | null;
+  created_at: number;
+  started_at: number | null;
+  completed_at: number | null;
+  elapsed_seconds: number | null;
+  error: string | null;
+}
+
+export interface SSEEvent {
+  event_type: string;
+  mission_id: string;
+  data: Record<string, unknown>;
+  timestamp: number;
+}
+
+export interface DashboardStats {
+  active: number;
+  completed: number;
+  queued: number;
+  total: number;
+  strike_count: number;
+  assist_count: number;
+  command_count: number;
+}
+
+export interface DashboardState {
+  missions: Record<string, Mission>;
+  stats: DashboardStats;
+  uptime_start: number;
+}
+
+export interface TelemetryLogEntry {
+  timestamp: number;
+  mission_id: string;
+  text: string;
+}
