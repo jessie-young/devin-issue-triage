@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Activity, Radio, Wifi, WifiOff, TrendingDown, TrendingUp } from 'lucide-react';
+import { Activity, Wifi, WifiOff, TrendingDown, TrendingUp } from 'lucide-react';
 
 interface HeaderBarProps {
   active: number;
@@ -31,49 +31,53 @@ export function HeaderBar({ active, completed, queued, total, uptimeStart, conne
   const backlogTrend = queued > active ? 'growing' : queued < completed ? 'shrinking' : 'stable';
 
   return (
-    <header className="border-b border-nasa-border bg-nasa-dark/80 backdrop-blur-sm px-6 py-3">
+    <header className="border-b border-app-border bg-white px-6 py-3">
       <div className="flex items-center justify-between">
         {/* Left: Title & Status */}
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <Radio className="w-5 h-5 text-nasa-cyan animate-pulse" />
-            <h1 className="text-xl font-bold tracking-wider text-nasa-text font-sans">
-              MISSION CONTROL
-            </h1>
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-app-primary flex items-center justify-center">
+              <Activity className="w-4.5 h-4.5 text-white" />
+            </div>
+            <div>
+              <h1 className="text-base font-semibold text-app-text">
+                Issue Triage
+              </h1>
+              <p className="text-xs text-app-text-muted">Automated issue investigation</p>
+            </div>
           </div>
-          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded border border-nasa-border bg-nasa-navy">
+          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
+            connected
+              ? 'bg-app-success-light text-app-success'
+              : 'bg-app-danger-light text-app-danger'
+          }`}>
             {connected ? (
-              <Wifi className="w-3.5 h-3.5 text-nasa-green" />
+              <Wifi className="w-3 h-3" />
             ) : (
-              <WifiOff className="w-3.5 h-3.5 text-nasa-red" />
+              <WifiOff className="w-3 h-3" />
             )}
-            <span className={`text-xs font-mono ${connected ? 'text-nasa-green' : 'text-nasa-red'}`}>
-              {connected ? 'CONNECTED' : 'DISCONNECTED'}
-            </span>
+            {connected ? 'Connected' : 'Disconnected'}
           </div>
         </div>
 
-        {/* Center: Mission Clock */}
-        <div className="flex items-center gap-6">
-          <div className="text-center">
-            <div className="text-xs text-nasa-muted font-sans uppercase tracking-wider">Mission Clock</div>
-            <div className="text-2xl font-mono text-nasa-cyan tracking-widest">{uptime}</div>
-          </div>
+        {/* Center: Uptime */}
+        <div className="text-center">
+          <div className="text-xs text-app-text-muted font-medium">Uptime</div>
+          <div className="text-lg font-mono text-app-text-secondary tracking-wide">{uptime}</div>
         </div>
 
         {/* Right: Stats */}
-        <div className="flex items-center gap-6">
-          <StatBadge label="QUEUED" value={queued} color="text-nasa-cyan" />
-          <StatBadge label="ACTIVE" value={active} color="text-nasa-amber" />
-          <StatBadge label="COMPLETE" value={completed} color="text-nasa-green" />
-          <div className="flex items-center gap-1.5 px-3 py-1 rounded border border-nasa-border bg-nasa-navy">
-            <Activity className="w-3.5 h-3.5 text-nasa-muted" />
-            <span className="text-xs font-sans text-nasa-muted uppercase">Backlog</span>
-            <span className="text-sm font-mono text-nasa-text font-bold">{total}</span>
+        <div className="flex items-center gap-5">
+          <StatBadge label="Queued" value={queued} dotColor="bg-app-primary" />
+          <StatBadge label="In Progress" value={active} dotColor="bg-app-warning" />
+          <StatBadge label="Resolved" value={completed} dotColor="bg-app-success" />
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-app-panel border border-app-border">
+            <span className="text-xs font-medium text-app-text-secondary">Total</span>
+            <span className="text-sm font-semibold text-app-text">{total}</span>
             {backlogTrend === 'shrinking' ? (
-              <TrendingDown className="w-3.5 h-3.5 text-nasa-green" />
+              <TrendingDown className="w-3.5 h-3.5 text-app-success" />
             ) : backlogTrend === 'growing' ? (
-              <TrendingUp className="w-3.5 h-3.5 text-nasa-red" />
+              <TrendingUp className="w-3.5 h-3.5 text-app-danger" />
             ) : null}
           </div>
         </div>
@@ -82,11 +86,14 @@ export function HeaderBar({ active, completed, queued, total, uptimeStart, conne
   );
 }
 
-function StatBadge({ label, value, color }: { label: string; value: number; color: string }) {
+function StatBadge({ label, value, dotColor }: { label: string; value: number; dotColor: string }) {
   return (
     <div className="text-center">
-      <div className="text-xs text-nasa-muted font-sans uppercase tracking-wider">{label}</div>
-      <div className={`text-lg font-mono font-bold ${color}`}>{value}</div>
+      <div className="flex items-center gap-1.5 text-xs text-app-text-muted font-medium">
+        <span className={`w-2 h-2 rounded-full ${dotColor}`} />
+        {label}
+      </div>
+      <div className="text-lg font-semibold text-app-text">{value}</div>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { Rocket, CheckCircle2, Clock, AlertTriangle, XCircle, Circle, Loader2 } from 'lucide-react';
+import { Play, CheckCircle2, Clock, AlertTriangle, XCircle, Circle, Loader2, ExternalLink } from 'lucide-react';
 import type { Mission, MissionClassification, TelemetryStep } from '../types/mission';
 
 interface MissionCardProps {
@@ -9,14 +9,15 @@ interface MissionCardProps {
 
 function classificationBadge(c: MissionClassification | null) {
   if (!c) return null;
-  const styles: Record<string, string> = {
-    STRIKE: 'bg-nasa-green/20 text-nasa-green border-nasa-green/40',
-    ASSIST: 'bg-nasa-amber/20 text-nasa-amber border-nasa-amber/40',
-    COMMAND: 'bg-nasa-red/20 text-nasa-red border-nasa-red/40',
+  const config: Record<string, { label: string; style: string }> = {
+    STRIKE: { label: 'Auto-fix', style: 'bg-app-success-light text-app-success' },
+    ASSIST: { label: 'Needs Review', style: 'bg-app-warning-light text-app-warning' },
+    COMMAND: { label: 'Escalate', style: 'bg-app-danger-light text-app-danger' },
   };
+  const { label, style } = config[c] || { label: c, style: 'bg-app-panel text-app-text-muted' };
   return (
-    <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded border ${styles[c]}`}>
-      {c}
+    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${style}`}>
+      {label}
     </span>
   );
 }
@@ -24,53 +25,53 @@ function classificationBadge(c: MissionClassification | null) {
 function statusDot(status: string) {
   switch (status) {
     case 'QUEUED':
-      return <Circle className="w-3 h-3 text-nasa-cyan animate-pulse fill-nasa-cyan/30" />;
+      return <Circle className="w-3 h-3 text-app-primary animate-pulse-soft fill-app-primary/20" />;
     case 'INVESTIGATING':
     case 'FIX_IN_PROGRESS':
     case 'LAUNCHING':
-      return <Loader2 className="w-3 h-3 text-nasa-amber animate-spin" />;
+      return <Loader2 className="w-3 h-3 text-app-warning animate-spin" />;
     case 'INVESTIGATION_COMPLETE':
-      return <CheckCircle2 className="w-3 h-3 text-nasa-amber" />;
+      return <CheckCircle2 className="w-3 h-3 text-app-warning" />;
     case 'MISSION_COMPLETE':
-      return <CheckCircle2 className="w-3 h-3 text-nasa-green" />;
+      return <CheckCircle2 className="w-3 h-3 text-app-success" />;
     case 'ROUTED':
     case 'CLOSED':
-      return <CheckCircle2 className="w-3 h-3 text-nasa-muted" />;
+      return <CheckCircle2 className="w-3 h-3 text-app-text-muted" />;
     case 'FAILED':
-      return <XCircle className="w-3 h-3 text-nasa-red" />;
+      return <XCircle className="w-3 h-3 text-app-danger" />;
     default:
-      return <Circle className="w-3 h-3 text-nasa-muted" />;
+      return <Circle className="w-3 h-3 text-app-text-muted" />;
   }
 }
 
 function StepIcon({ status }: { status: string }) {
   switch (status) {
     case 'completed':
-      return <CheckCircle2 className="w-4 h-4 text-nasa-green flex-shrink-0" />;
+      return <CheckCircle2 className="w-4 h-4 text-app-success flex-shrink-0" />;
     case 'in_progress':
-      return <Loader2 className="w-4 h-4 text-nasa-amber animate-spin flex-shrink-0" />;
+      return <Loader2 className="w-4 h-4 text-app-warning animate-spin flex-shrink-0" />;
     case 'failed':
-      return <XCircle className="w-4 h-4 text-nasa-red flex-shrink-0" />;
+      return <XCircle className="w-4 h-4 text-app-danger flex-shrink-0" />;
     default:
-      return <Circle className="w-4 h-4 text-nasa-muted/40 flex-shrink-0" />;
+      return <Circle className="w-4 h-4 text-app-text-muted/40 flex-shrink-0" />;
   }
 }
 
-function TelemetryTimeline({ steps }: { steps: TelemetryStep[] }) {
+function InvestigationTimeline({ steps }: { steps: TelemetryStep[] }) {
   return (
-    <div className="space-y-1.5 mt-3">
+    <div className="space-y-1 mt-3">
       {steps.map((step) => (
         <div key={step.id} className="flex items-center gap-2">
           <StepIcon status={step.status} />
-          <span className={`text-xs font-mono ${
-            step.status === 'completed' ? 'text-nasa-green' :
-            step.status === 'in_progress' ? 'text-nasa-amber' :
-            'text-nasa-muted/50'
+          <span className={`text-xs ${
+            step.status === 'completed' ? 'text-app-success' :
+            step.status === 'in_progress' ? 'text-app-warning font-medium' :
+            'text-app-text-muted'
           }`}>
             {step.label}
           </span>
           {step.status === 'in_progress' && (
-            <span className="text-xs text-nasa-amber/60 font-mono">IN PROGRESS...</span>
+            <span className="text-xs text-app-warning/70">in progress...</span>
           )}
         </div>
       ))}
@@ -84,7 +85,7 @@ function ElapsedTimer({ startedAt, completedAt }: { startedAt: number | null; co
   const m = Math.floor(elapsed / 60);
   const s = Math.floor(elapsed % 60);
   return (
-    <div className="flex items-center gap-1 text-xs font-mono text-nasa-muted">
+    <div className="flex items-center gap-1 text-xs text-app-text-muted">
       <Clock className="w-3 h-3" />
       {String(m).padStart(2, '0')}:{String(s).padStart(2, '0')}
     </div>
@@ -95,19 +96,19 @@ export function MissionCard({ mission, onLaunch, compact }: MissionCardProps) {
   const isActive = ['INVESTIGATING', 'FIX_IN_PROGRESS', 'LAUNCHING'].includes(mission.status);
   const isStrikeReady = mission.status === 'INVESTIGATION_COMPLETE' && mission.classification === 'STRIKE';
 
-  const borderColor = isActive ? 'border-nasa-cyan/50 animate-pulse-glow' :
-    isStrikeReady ? 'border-nasa-green/50' :
-    mission.status === 'MISSION_COMPLETE' ? 'border-nasa-green/30' :
-    mission.status === 'FAILED' ? 'border-nasa-red/30' :
-    'border-nasa-border';
+  const borderStyle = isActive ? 'border-app-primary/30 shadow-sm shadow-app-primary/5' :
+    isStrikeReady ? 'border-app-success/40 shadow-sm' :
+    mission.status === 'MISSION_COMPLETE' ? 'border-app-success/20' :
+    mission.status === 'FAILED' ? 'border-app-danger/20' :
+    'border-app-border';
 
   return (
-    <div className={`rounded-lg border ${borderColor} bg-nasa-panel p-4 transition-all duration-300 animate-fade-in`}>
+    <div className={`rounded-lg border ${borderStyle} bg-white p-4 transition-all duration-300 animate-fade-in`}>
       {/* Header */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           {statusDot(mission.status)}
-          <span className="text-xs font-mono text-nasa-cyan font-bold">{mission.id}</span>
+          <span className="text-xs font-mono text-app-primary font-semibold">{mission.id}</span>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           {classificationBadge(mission.classification)}
@@ -116,7 +117,7 @@ export function MissionCard({ mission, onLaunch, compact }: MissionCardProps) {
       </div>
 
       {/* Title */}
-      <h3 className="text-sm font-sans text-nasa-text mt-2 line-clamp-2">
+      <h3 className="text-sm font-medium text-app-text mt-2 line-clamp-2">
         {mission.issue_title}
       </h3>
 
@@ -126,38 +127,38 @@ export function MissionCard({ mission, onLaunch, compact }: MissionCardProps) {
           href={mission.issue_url}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-xs text-nasa-cyan/60 hover:text-nasa-cyan font-mono mt-1 inline-block"
+          className="text-xs text-app-text-muted hover:text-app-primary mt-1 inline-block"
         >
           #{mission.issue_number}
         </a>
       )}
 
-      {/* Telemetry Timeline (for active/complete missions) */}
+      {/* Investigation Timeline */}
       {!compact && mission.telemetry.length > 0 && (
-        <TelemetryTimeline steps={mission.telemetry} />
+        <InvestigationTimeline steps={mission.telemetry} />
       )}
 
       {/* Investigation Report Summary */}
       {!compact && mission.investigation_report && (
-        <div className="mt-3 p-2 rounded bg-nasa-navy/50 border border-nasa-border/50">
-          <div className="text-xs font-mono text-nasa-muted mb-1">ROOT CAUSE</div>
-          <p className="text-xs text-nasa-text/80 line-clamp-3">
+        <div className="mt-3 p-3 rounded-lg bg-app-panel border border-app-border-light">
+          <div className="text-xs font-medium text-app-text-secondary mb-1">Root Cause</div>
+          <p className="text-xs text-app-text-secondary line-clamp-3">
             {mission.investigation_report.root_cause}
           </p>
           {mission.investigation_report.fix_confidence > 0 && (
             <div className="flex items-center gap-2 mt-2">
-              <span className="text-xs font-mono text-nasa-muted">CONFIDENCE</span>
-              <div className="flex-1 h-1.5 bg-nasa-navy rounded-full overflow-hidden">
+              <span className="text-xs text-app-text-muted">Confidence</span>
+              <div className="flex-1 h-1.5 bg-app-border rounded-full overflow-hidden">
                 <div
-                  className={`h-full rounded-full ${
-                    mission.investigation_report.fix_confidence >= 80 ? 'bg-nasa-green' :
-                    mission.investigation_report.fix_confidence >= 50 ? 'bg-nasa-amber' :
-                    'bg-nasa-red'
+                  className={`h-full rounded-full transition-all ${
+                    mission.investigation_report.fix_confidence >= 80 ? 'bg-app-success' :
+                    mission.investigation_report.fix_confidence >= 50 ? 'bg-app-warning' :
+                    'bg-app-danger'
                   }`}
                   style={{ width: `${mission.investigation_report.fix_confidence}%` }}
                 />
               </div>
-              <span className="text-xs font-mono text-nasa-text">
+              <span className="text-xs font-medium text-app-text-secondary">
                 {mission.investigation_report.fix_confidence}%
               </span>
             </div>
@@ -165,37 +166,37 @@ export function MissionCard({ mission, onLaunch, compact }: MissionCardProps) {
         </div>
       )}
 
-      {/* GO FOR LAUNCH button */}
+      {/* Apply Fix button */}
       {isStrikeReady && onLaunch && (
         <button
           onClick={() => onLaunch(mission.id)}
-          className="mt-4 w-full py-2.5 rounded-lg font-mono text-sm font-bold uppercase tracking-wider
-            bg-nasa-green/20 text-nasa-green border-2 border-nasa-green/50
-            hover:bg-nasa-green/30 hover:border-nasa-green
-            animate-pulse-glow transition-all duration-200
-            flex items-center justify-center gap-2"
+          className="mt-4 w-full py-2.5 rounded-lg text-sm font-semibold
+            bg-app-primary text-white
+            hover:bg-app-primary-hover
+            transition-all duration-200
+            flex items-center justify-center gap-2 shadow-sm"
         >
-          <Rocket className="w-4 h-4" />
-          GO FOR LAUNCH
+          <Play className="w-4 h-4" />
+          Apply Fix
         </button>
       )}
 
-      {/* PR Link for completed missions */}
+      {/* Issue Link for completed missions */}
       {mission.pr_url && (
         <a
           href={mission.pr_url}
           target="_blank"
           rel="noopener noreferrer"
-          className="mt-3 flex items-center gap-2 text-xs font-mono text-nasa-cyan hover:text-nasa-cyan/80"
+          className="mt-3 flex items-center gap-1.5 text-xs font-medium text-app-primary hover:text-app-primary-hover"
         >
-          <CheckCircle2 className="w-3.5 h-3.5" />
-          View PR
+          <ExternalLink className="w-3.5 h-3.5" />
+          View Issue
         </a>
       )}
 
       {/* Error display */}
       {mission.error && (
-        <div className="mt-2 flex items-center gap-1.5 text-xs text-nasa-red font-mono">
+        <div className="mt-2 flex items-center gap-1.5 text-xs text-app-danger">
           <AlertTriangle className="w-3.5 h-3.5" />
           {mission.error}
         </div>

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Terminal } from 'lucide-react';
+import { List } from 'lucide-react';
 import type { TelemetryLogEntry } from '../types/mission';
 
 interface TelemetryStripProps {
@@ -21,21 +21,21 @@ export function TelemetryStrip({ entries }: TelemetryStripProps) {
   }, [entries]);
 
   return (
-    <div className="border-t border-nasa-border bg-nasa-navy/80 backdrop-blur-sm">
-      <div className="flex items-center gap-2 px-4 py-1.5 border-b border-nasa-border/50">
-        <Terminal className="w-3.5 h-3.5 text-nasa-cyan" />
-        <span className="text-xs font-mono text-nasa-muted uppercase tracking-wider">Telemetry Feed</span>
-        <span className="text-xs font-mono text-nasa-cyan/50">{entries.length} events</span>
+    <div className="border-t border-app-border bg-white">
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-app-border">
+        <List className="w-3.5 h-3.5 text-app-text-muted" />
+        <span className="text-xs font-medium text-app-text-secondary">Activity Log</span>
+        <span className="text-xs text-app-text-muted">{entries.length} events</span>
       </div>
-      <div ref={scrollRef} className="h-32 overflow-y-auto px-4 py-1 font-mono text-xs">
+      <div ref={scrollRef} className="h-28 overflow-y-auto px-4 py-1 font-mono text-xs">
         {entries.length === 0 ? (
-          <div className="text-nasa-muted/40 py-2">Awaiting telemetry data...</div>
+          <div className="text-app-text-muted py-2">Waiting for activity...</div>
         ) : (
           entries.map((entry, i) => (
-            <div key={i} className="flex gap-3 py-0.5 hover:bg-nasa-panel/30">
-              <span className="text-nasa-muted/60 flex-shrink-0">{formatTime(entry.timestamp)}</span>
-              <span className="text-nasa-cyan/80 flex-shrink-0 w-24 truncate">{entry.mission_id}</span>
-              <span className="text-nasa-text/70 truncate">{entry.text}</span>
+            <div key={i} className="flex gap-3 py-0.5 hover:bg-app-panel/50 rounded">
+              <span className="text-app-text-muted flex-shrink-0">{formatTime(entry.timestamp)}</span>
+              <span className="text-app-primary flex-shrink-0 w-24 truncate font-medium">{entry.mission_id}</span>
+              <span className="text-app-text-secondary truncate">{entry.text}</span>
             </div>
           ))
         )}
