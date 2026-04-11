@@ -210,7 +210,7 @@ async def launch_fix(req: LaunchRequest):
                 completed_at=time.time(),
             )
 
-        _asyncio.get_event_loop().create_task(_simulate_fix())
+        _asyncio.ensure_future(_simulate_fix())
         return {"status": "launched_simulated", "mission_id": req.mission_id}
 
 
