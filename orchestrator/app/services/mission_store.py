@@ -112,7 +112,8 @@ class MissionStore:
     def get_dashboard_state(self) -> DashboardState:
         """Return full state for dashboard initial load."""
         active = len([m for m in self._missions.values() if m.status in (
-            MissionStatus.INVESTIGATING, MissionStatus.FIX_IN_PROGRESS, MissionStatus.LAUNCHING
+            MissionStatus.INVESTIGATING, MissionStatus.INVESTIGATION_COMPLETE,
+            MissionStatus.FIX_IN_PROGRESS, MissionStatus.LAUNCHING,
         )])
         completed = len([m for m in self._missions.values() if m.status in (
             MissionStatus.MISSION_COMPLETE, MissionStatus.ROUTED, MissionStatus.CLOSED

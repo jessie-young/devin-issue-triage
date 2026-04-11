@@ -60,6 +60,15 @@ async def _auto_seed():
 
         logger.info(f"Auto-seed: simulated {simulated}/{created} missions")
 
+        # Route ASSIST/COMMAND missions to Completed column for demo
+        from app.models.mission import MissionClassification, MissionStatus
+        routed = 0
+        for m in mission_store.get_all_missions():
+            if m.classification in (MissionClassification.ASSIST, MissionClassification.COMMAND):
+                await mission_store.update_mission(m.id, status=MissionStatus.ROUTED)
+                routed += 1
+        logger.info(f"Auto-seed: routed {routed} ASSIST/COMMAND missions to completed")
+
     except Exception as e:
         logger.error(f"Auto-seed failed: {e}")
 

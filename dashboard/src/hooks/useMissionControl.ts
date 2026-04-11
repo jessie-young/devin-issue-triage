@@ -29,7 +29,7 @@ export function useMissionControl() {
   const recalcStats = useCallback((missionMap: Record<string, Mission>) => {
     const all = Object.values(missionMap);
     setStats({
-      active: all.filter(m => ['INVESTIGATING', 'FIX_IN_PROGRESS', 'LAUNCHING'].includes(m.status)).length,
+      active: all.filter(m => ['INVESTIGATING', 'INVESTIGATION_COMPLETE', 'FIX_IN_PROGRESS', 'LAUNCHING'].includes(m.status)).length,
       completed: all.filter(m => ['MISSION_COMPLETE', 'ROUTED', 'CLOSED'].includes(m.status)).length,
       queued: all.filter(m => m.status === 'QUEUED').length,
       total: all.length,
