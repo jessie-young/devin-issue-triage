@@ -114,17 +114,27 @@ FIX_PROMPT_TEMPLATE = """You are fixing a bug in the FinServ Platform repository
 
 
 class DevinClient:
-    """Client for the Devin API."""
+    """Client for the Devin API v3 (Service User auth)."""
 
     def __init__(self) -> None:
         self._base_url = settings.devin_api_base_url
-        self._token = settings.devin_api_token
+        self._api_key = settings.devin_api_key
+        self._org_id = settings.devin_org_id
+
+    @property
+    def is_configured(self) -> bool:
+        """Check if the client has valid credentials."""
+        return bool(self._api_key and self._org_id)
 
     def _headers(self) -> dict[str, str]:
         return {
-            "Authorization": f"Bearer {self._token}",
+            "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
         }
+
+    def _org_url(self, path: str) -> str:
+        """Build organization-scoped API URL."""
+        return f"{self._base_url}/organizations/{self._org_id}{path}"
 
     async def create_investigation_session(
         self,
@@ -148,7 +158,7 @@ class DevinClient:
 
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(
-                f"{self._base_url}/sessions",
+                self._org_url("/sessions"),
                 headers=self._headers(),
                 json=payload,
             )
@@ -183,7 +193,7 @@ class DevinClient:
 
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(
-                f"{self._base_url}/sessions",
+                self._org_url("/sessions"),
                 headers=self._headers(),
                 json=payload,
             )
@@ -194,7 +204,7 @@ class DevinClient:
         """Get session details including status."""
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.get(
-                f"{self._base_url}/sessions/{session_id}",
+                self._org_url(f"/sessions/{session_id}"),
                 headers=self._headers(),
             )
             resp.raise_for_status()
@@ -204,19 +214,18 @@ class DevinClient:
         """Get messages/output from a Devin session."""
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.get(
-                f"{self._base_url}/sessions/{session_id}/messages",
+                self._org_url(f"/sessions/{session_id}/messages"),
                 headers=self._headers(),
             )
             resp.raise_for_status()
             data = resp.json()
-            # The API returns messages in a list
             return data if isinstance(data, list) else data.get("messages", [])
 
     async def list_sessions(self, limit: int = 20) -> list[dict]:
         """List recent Devin sessions."""
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.get(
-                f"{self._base_url}/sessions",
+                self._org_url("/sessions"),
                 headers=self._headers(),
                 params={"limit": limit},
             )

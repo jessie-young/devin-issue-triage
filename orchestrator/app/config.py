@@ -6,9 +6,10 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
-    # Devin API
-    devin_api_token: str = ""
-    devin_api_base_url: str = "https://api.devin.ai/v1"
+    # Devin API (v3 - Service Users)
+    devin_api_key: str = ""
+    devin_org_id: str = ""
+    devin_api_base_url: str = "https://api.devin.ai/v3"
 
     # GitHub
     github_token: str = ""
