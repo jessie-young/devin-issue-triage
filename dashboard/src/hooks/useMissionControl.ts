@@ -76,14 +76,23 @@ export function useMissionControl() {
 
       es.addEventListener('mission_updated', (e) => {
         const event: SSEEvent = JSON.parse(e.data);
-        setMissions(prev => {
-          const updated = { ...prev };
-          if (updated[event.mission_id]) {
-            updated[event.mission_id] = { ...updated[event.mission_id], ...event.data } as Mission;
+        const newStatus = event.data.status as string | undefined;
+        // If status changed to a terminal/phase state, do a full refetch for accurate data
+        if (newStatus && ['MISSION_COMPLETE', 'ROUTED', 'CLOSED', 'FAILED', 'FIX_IN_PROGRESS', 'LAUNCHING'].includes(newStatus)) {
+          fetchState();
+          if (newStatus === 'MISSION_COMPLETE') {
+            addLogEntry(event.mission_id, `MISSION COMPLETE`);
           }
-          recalcStats(updated);
-          return updated;
-        });
+        } else {
+          setMissions(prev => {
+            const updated = { ...prev };
+            if (updated[event.mission_id]) {
+              updated[event.mission_id] = { ...updated[event.mission_id], ...event.data } as Mission;
+            }
+            recalcStats(updated);
+            return updated;
+          });
+        }
       });
 
       es.addEventListener('telemetry_update', (e) => {
@@ -99,7 +108,7 @@ export function useMissionControl() {
             updated[event.mission_id] = {
               ...mission,
               telemetry: mission.telemetry.map(s =>
-                s.id === stepId ? { ...s, status: status as TelemetryLogEntry['text'] extends string ? 'completed' : 'pending', timestamp: Date.now() / 1000, detail: detail || s.detail } : s
+                s.id === stepId ? { ...s, status, timestamp: Date.now() / 1000, detail: detail || s.detail } : s
               ),
             } as Mission;
           }
@@ -151,6 +160,13 @@ export function useMissionControl() {
       }
       addLogEntry(missionId, 'GO FOR LAUNCH initiated');
       await fetchState();
+      // Poll for updates during simulated fix (every 2s for 20s)
+      let polls = 0;
+      const pollInterval = setInterval(async () => {
+        polls++;
+        await fetchState();
+        if (polls >= 10) clearInterval(pollInterval);
+      }, 2000);
     } catch (err) {
       addLogEntry(missionId, `Launch error: ${err}`);
     }
