@@ -195,20 +195,28 @@ async def launch_fix(req: LaunchRequest):
         import asyncio as _asyncio
 
         async def _simulate_fix():
-            await _asyncio.sleep(0.5)
-            await mission_store.update_mission(req.mission_id, status=MissionStatus.FIX_IN_PROGRESS)
-            fix_steps = ["fix_start", "test_write", "test_run", "pr_open", "mission_complete"]
-            labels = ["Writing Fix", "Writing Regression Test", "Running Test Suite", "Opening PR", "MISSION COMPLETE"]
-            for step_id, label in zip(fix_steps, labels):
-                await _asyncio.sleep(1.5)
-                await mission_store.update_telemetry_step(req.mission_id, step_id, "completed", f"Simulated: {label}")
-            # Use issue URL for demo — a real Devin session would create an actual PR
-            await mission_store.update_mission(
-                req.mission_id,
-                status=MissionStatus.MISSION_COMPLETE,
-                pr_url=mission.issue_url,
-                completed_at=time.time(),
-            )
+            try:
+                await _asyncio.sleep(0.5)
+                await mission_store.update_mission(req.mission_id, status=MissionStatus.FIX_IN_PROGRESS)
+                fix_steps = ["fix_start", "test_write", "test_run", "pr_open", "mission_complete"]
+                labels = ["Writing Fix", "Writing Regression Test", "Running Test Suite", "Opening PR", "MISSION COMPLETE"]
+                for step_id, label in zip(fix_steps, labels):
+                    await _asyncio.sleep(1.5)
+                    await mission_store.update_telemetry_step(req.mission_id, step_id, "completed", f"Simulated: {label}")
+                # Use issue URL for demo — a real Devin session would create an actual PR
+                await mission_store.update_mission(
+                    req.mission_id,
+                    status=MissionStatus.MISSION_COMPLETE,
+                    pr_url=mission.issue_url,
+                    completed_at=time.time(),
+                )
+            except Exception as exc:
+                logger.error(f"Simulated fix failed for {req.mission_id}: {exc}")
+                await mission_store.update_mission(
+                    req.mission_id,
+                    status=MissionStatus.FAILED,
+                    error=f"Simulated fix error: {exc}",
+                )
 
         _asyncio.ensure_future(_simulate_fix())
         return {"status": "launched_simulated", "mission_id": req.mission_id}

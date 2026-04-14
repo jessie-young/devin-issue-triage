@@ -181,7 +181,7 @@ export function MissionCard({ mission, onLaunch, compact }: MissionCardProps) {
         </button>
       )}
 
-      {/* Issue Link for completed missions */}
+      {/* PR/Issue Link for completed missions */}
       {mission.pr_url && (
         <a
           href={mission.pr_url}
@@ -190,7 +190,7 @@ export function MissionCard({ mission, onLaunch, compact }: MissionCardProps) {
           className="mt-3 flex items-center gap-1.5 text-xs font-medium text-app-primary hover:text-app-primary-hover"
         >
           <ExternalLink className="w-3.5 h-3.5" />
-          View Issue
+          View Pull Request
         </a>
       )}
 
