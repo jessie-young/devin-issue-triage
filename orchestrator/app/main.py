@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers.missions import router as missions_router
+from app.routers.investigations import router as investigations_router
 from app.routers.webhooks import router as webhooks_router
 
 logging.basicConfig(
@@ -20,11 +20,11 @@ logger = logging.getLogger(__name__)
 
 
 async def _auto_seed():
-    """Auto-seed missions from GitHub issues on startup for demo purposes."""
+    """Auto-seed investigations from GitHub issues on startup for demo purposes."""
     from app.config import settings
     from app.services.github_service import github_service
-    from app.services.mission_store import mission_store
-    from app.routers.missions import simulate_investigation
+    from app.services.investigation_store import investigation_store
+    from app.routers.investigations import simulate_investigation
 
     if not settings.github_token:
         logger.info("No GITHUB_TOKEN set, skipping auto-seed")
@@ -36,7 +36,7 @@ async def _auto_seed():
         for issue in issues:
             if "pull_request" in issue:
                 continue
-            mission = await mission_store.create_mission(
+            inv = await investigation_store.create_investigation(
                 issue_number=issue["number"],
                 issue_title=issue.get("title", ""),
                 issue_body=issue.get("body", ""),
@@ -47,27 +47,27 @@ async def _auto_seed():
 
         logger.info(f"Auto-seed: ingested {created} issues")
 
-        # Simulate investigations for all missions (skip GitHub comment posting on startup)
-        all_missions = mission_store.get_all_missions()
+        # Simulate investigations for all issues (skip GitHub comment posting on startup)
+        all_investigations = investigation_store.get_all_investigations()
         simulated = 0
-        for m in all_missions:
+        for inv in all_investigations:
             try:
-                await simulate_investigation(m.id, post_comment=False)
+                await simulate_investigation(inv.id, post_comment=False)
                 simulated += 1
             except Exception as e:
-                logger.warning(f"Auto-seed: failed to simulate {m.id}: {e}")
+                logger.warning(f"Auto-seed: failed to simulate {inv.id}: {e}")
             await asyncio.sleep(0.05)
 
-        logger.info(f"Auto-seed: simulated {simulated}/{created} missions")
+        logger.info(f"Auto-seed: simulated {simulated}/{created} investigations")
 
-        # Route ASSIST/COMMAND missions to Completed column for demo
-        from app.models.mission import MissionClassification, MissionStatus
+        # Route ASSIST/COMMAND investigations to Completed column for demo
+        from app.models.investigation import InvestigationClassification, InvestigationStatus
         routed = 0
-        for m in mission_store.get_all_missions():
-            if m.classification in (MissionClassification.ASSIST, MissionClassification.COMMAND):
-                await mission_store.update_mission(m.id, status=MissionStatus.ROUTED)
+        for inv in investigation_store.get_all_investigations():
+            if inv.classification in (InvestigationClassification.ASSIST, InvestigationClassification.COMMAND):
+                await investigation_store.update_investigation(inv.id, status=InvestigationStatus.ROUTED)
                 routed += 1
-        logger.info(f"Auto-seed: routed {routed} ASSIST/COMMAND missions to completed")
+        logger.info(f"Auto-seed: routed {routed} ASSIST/COMMAND investigations to completed")
 
     except Exception as e:
         logger.error(f"Auto-seed failed: {e}")
@@ -91,7 +91,7 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers
 )
 
-app.include_router(missions_router)
+app.include_router(investigations_router)
 app.include_router(webhooks_router)
 
 

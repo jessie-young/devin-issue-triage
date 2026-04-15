@@ -1,44 +1,44 @@
 import { useMemo, useState } from 'react';
 import { Inbox, Search, CheckCircle2 } from 'lucide-react';
-import { useMissionControl } from './hooks/useMissionControl';
+import { useIssueTriage } from './hooks/useIssueTriage';
 import { HeaderBar } from './components/HeaderBar';
-import { MissionColumn } from './components/MissionColumn';
+import { InvestigationColumn } from './components/InvestigationColumn';
 import { TelemetryStrip } from './components/TelemetryStrip';
-import { FileMissionInput } from './components/FileMissionInput';
+import { FileInvestigationInput } from './components/FileInvestigationInput';
 import { MetricsPanel } from './components/MetricsPanel';
-import type { Mission } from './types/mission';
+import type { Investigation } from './types/investigation';
 
 function App() {
   const {
-    missions,
+    investigations,
     stats,
     uptimeStart,
     telemetryLog,
     connected,
     launchFix,
-    fileMission,
-  } = useMissionControl();
+    fileInvestigation,
+  } = useIssueTriage();
 
   const [showMetrics, setShowMetrics] = useState(false);
-  const missionList = useMemo(() => Object.values(missions), [missions]);
+  const investigationList = useMemo(() => Object.values(investigations), [investigations]);
 
   const queued = useMemo(
-    () => missionList.filter((m: Mission) => m.status === 'QUEUED'),
-    [missionList]
+    () => investigationList.filter((inv: Investigation) => inv.status === 'QUEUED'),
+    [investigationList]
   );
 
   const active = useMemo(
-    () => missionList.filter((m: Mission) =>
-      ['INVESTIGATING', 'INVESTIGATION_COMPLETE', 'LAUNCHING', 'FIX_IN_PROGRESS'].includes(m.status)
+    () => investigationList.filter((inv: Investigation) =>
+      ['INVESTIGATING', 'INVESTIGATION_COMPLETE', 'LAUNCHING', 'FIX_IN_PROGRESS'].includes(inv.status)
     ),
-    [missionList]
+    [investigationList]
   );
 
   const completed = useMemo(
-    () => missionList.filter((m: Mission) =>
-      ['MISSION_COMPLETE', 'ROUTED', 'CLOSED', 'FAILED'].includes(m.status)
+    () => investigationList.filter((inv: Investigation) =>
+      ['RESOLVED', 'ROUTED', 'CLOSED', 'FAILED'].includes(inv.status)
     ),
-    [missionList]
+    [investigationList]
   );
 
   return (
@@ -81,16 +81,16 @@ function App() {
           >
             Metrics
           </button>
-          <FileMissionInput onFile={fileMission} />
+          <FileInvestigationInput onFile={fileInvestigation} />
         </div>
       </div>
 
       {/* Three-column layout */}
       <div className="flex-1 grid grid-cols-4 divide-x divide-app-border min-h-0">
         {/* Left: Queue */}
-        <MissionColumn
+        <InvestigationColumn
           title="Queue"
-          missions={queued}
+          investigations={queued}
           icon={<Inbox className="w-4 h-4 text-app-primary" />}
           accentColor="text-app-text-secondary"
           compact
@@ -99,9 +99,9 @@ function App() {
 
         {/* Center: In Progress (wider) */}
         <div className="col-span-2">
-          <MissionColumn
+          <InvestigationColumn
             title="In Progress"
-            missions={active}
+            investigations={active}
             icon={<Search className="w-4 h-4 text-app-warning" />}
             accentColor="text-app-text-secondary"
             onLaunch={launchFix}
@@ -110,9 +110,9 @@ function App() {
         </div>
 
         {/* Right: Resolved */}
-        <MissionColumn
+        <InvestigationColumn
           title="Resolved"
-          missions={completed}
+          investigations={completed}
           icon={<CheckCircle2 className="w-4 h-4 text-app-success" />}
           accentColor="text-app-text-secondary"
           compact
@@ -125,7 +125,7 @@ function App() {
 
       {/* Metrics Modal */}
       {showMetrics && (
-        <MetricsPanel missions={missionList} onClose={() => setShowMetrics(false)} />
+        <MetricsPanel investigations={investigationList} onClose={() => setShowMetrics(false)} />
       )}
     </div>
   );

@@ -1,13 +1,13 @@
 import { Play, CheckCircle2, Clock, AlertTriangle, XCircle, Circle, Loader2, ExternalLink } from 'lucide-react';
-import type { Mission, MissionClassification, TelemetryStep } from '../types/mission';
+import type { Investigation, InvestigationClassification, TelemetryStep } from '../types/investigation';
 
-interface MissionCardProps {
-  mission: Mission;
-  onLaunch?: (missionId: string) => void;
+interface InvestigationCardProps {
+  investigation: Investigation;
+  onLaunch?: (investigationId: string) => void;
   compact?: boolean;
 }
 
-function classificationBadge(c: MissionClassification | null) {
+function classificationBadge(c: InvestigationClassification | null) {
   if (!c) return null;
   const config: Record<string, { label: string; style: string }> = {
     STRIKE: { label: 'Auto-fix', style: 'bg-app-success-light text-app-success' },
@@ -32,7 +32,7 @@ function statusDot(status: string) {
       return <Loader2 className="w-3 h-3 text-app-warning animate-spin" />;
     case 'INVESTIGATION_COMPLETE':
       return <CheckCircle2 className="w-3 h-3 text-app-warning" />;
-    case 'MISSION_COMPLETE':
+    case 'RESOLVED':
       return <CheckCircle2 className="w-3 h-3 text-app-success" />;
     case 'ROUTED':
     case 'CLOSED':
@@ -92,14 +92,14 @@ function ElapsedTimer({ startedAt, completedAt }: { startedAt: number | null; co
   );
 }
 
-export function MissionCard({ mission, onLaunch, compact }: MissionCardProps) {
-  const isActive = ['INVESTIGATING', 'FIX_IN_PROGRESS', 'LAUNCHING'].includes(mission.status);
-  const isStrikeReady = mission.status === 'INVESTIGATION_COMPLETE' && mission.classification === 'STRIKE';
+export function InvestigationCard({ investigation, onLaunch, compact }: InvestigationCardProps) {
+  const isActive = ['INVESTIGATING', 'FIX_IN_PROGRESS', 'LAUNCHING'].includes(investigation.status);
+  const isStrikeReady = investigation.status === 'INVESTIGATION_COMPLETE' && investigation.classification === 'STRIKE';
 
   const borderStyle = isActive ? 'border-app-primary/30 shadow-sm shadow-app-primary/5' :
     isStrikeReady ? 'border-app-success/40 shadow-sm' :
-    mission.status === 'MISSION_COMPLETE' ? 'border-app-success/20' :
-    mission.status === 'FAILED' ? 'border-app-danger/20' :
+    investigation.status === 'RESOLVED' ? 'border-app-success/20' :
+    investigation.status === 'FAILED' ? 'border-app-danger/20' :
     'border-app-border';
 
   return (
@@ -107,59 +107,59 @@ export function MissionCard({ mission, onLaunch, compact }: MissionCardProps) {
       {/* Header */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
-          {statusDot(mission.status)}
-          <span className="text-xs font-mono text-app-primary font-semibold">{mission.id}</span>
+          {statusDot(investigation.status)}
+          <span className="text-xs font-mono text-app-primary font-semibold">{investigation.id}</span>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          {classificationBadge(mission.classification)}
-          <ElapsedTimer startedAt={mission.started_at} completedAt={mission.completed_at} />
+          {classificationBadge(investigation.classification)}
+          <ElapsedTimer startedAt={investigation.started_at} completedAt={investigation.completed_at} />
         </div>
       </div>
 
       {/* Title */}
       <h3 className="text-sm font-medium text-app-text mt-2 line-clamp-2">
-        {mission.issue_title}
+        {investigation.issue_title}
       </h3>
 
       {/* Issue link */}
-      {mission.issue_url && (
+      {investigation.issue_url && (
         <a
-          href={mission.issue_url}
+          href={investigation.issue_url}
           target="_blank"
           rel="noopener noreferrer"
           className="text-xs text-app-text-muted hover:text-app-primary mt-1 inline-block"
         >
-          #{mission.issue_number}
+          #{investigation.issue_number}
         </a>
       )}
 
       {/* Investigation Timeline */}
-      {!compact && mission.telemetry.length > 0 && (
-        <InvestigationTimeline steps={mission.telemetry} />
+      {!compact && investigation.telemetry.length > 0 && (
+        <InvestigationTimeline steps={investigation.telemetry} />
       )}
 
       {/* Investigation Report Summary */}
-      {!compact && mission.investigation_report && (
+      {!compact && investigation.investigation_report && (
         <div className="mt-3 p-3 rounded-lg bg-app-panel border border-app-border-light">
           <div className="text-xs font-medium text-app-text-secondary mb-1">Root Cause</div>
           <p className="text-xs text-app-text-secondary line-clamp-3">
-            {mission.investigation_report.root_cause}
+            {investigation.investigation_report.root_cause}
           </p>
-          {mission.investigation_report.fix_confidence > 0 && (
+          {investigation.investigation_report.fix_confidence > 0 && (
             <div className="flex items-center gap-2 mt-2">
               <span className="text-xs text-app-text-muted">Confidence</span>
               <div className="flex-1 h-1.5 bg-app-border rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all ${
-                    mission.investigation_report.fix_confidence >= 80 ? 'bg-app-success' :
-                    mission.investigation_report.fix_confidence >= 50 ? 'bg-app-warning' :
+                    investigation.investigation_report.fix_confidence >= 80 ? 'bg-app-success' :
+                    investigation.investigation_report.fix_confidence >= 50 ? 'bg-app-warning' :
                     'bg-app-danger'
                   }`}
-                  style={{ width: `${mission.investigation_report.fix_confidence}%` }}
+                  style={{ width: `${investigation.investigation_report.fix_confidence}%` }}
                 />
               </div>
               <span className="text-xs font-medium text-app-text-secondary">
-                {mission.investigation_report.fix_confidence}%
+                {investigation.investigation_report.fix_confidence}%
               </span>
             </div>
           )}
@@ -169,7 +169,7 @@ export function MissionCard({ mission, onLaunch, compact }: MissionCardProps) {
       {/* Apply Fix button */}
       {isStrikeReady && onLaunch && (
         <button
-          onClick={() => onLaunch(mission.id)}
+          onClick={() => onLaunch(investigation.id)}
           className="mt-4 w-full py-2.5 rounded-lg text-sm font-semibold
             bg-app-primary text-white
             hover:bg-app-primary-hover
@@ -181,10 +181,10 @@ export function MissionCard({ mission, onLaunch, compact }: MissionCardProps) {
         </button>
       )}
 
-      {/* PR/Issue Link for completed missions */}
-      {mission.pr_url && (
+      {/* PR link for completed investigations */}
+      {investigation.pr_url && (
         <a
-          href={mission.pr_url}
+          href={investigation.pr_url}
           target="_blank"
           rel="noopener noreferrer"
           className="mt-3 flex items-center gap-1.5 text-xs font-medium text-app-primary hover:text-app-primary-hover"
@@ -195,10 +195,10 @@ export function MissionCard({ mission, onLaunch, compact }: MissionCardProps) {
       )}
 
       {/* Error display */}
-      {mission.error && (
+      {investigation.error && (
         <div className="mt-2 flex items-center gap-1.5 text-xs text-app-danger">
           <AlertTriangle className="w-3.5 h-3.5" />
-          {mission.error}
+          {investigation.error}
         </div>
       )}
     </div>

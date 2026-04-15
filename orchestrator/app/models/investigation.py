@@ -1,4 +1,4 @@
-"""Mission data models for the orchestrator."""
+"""Investigation data models for the orchestrator."""
 
 from __future__ import annotations
 
@@ -9,19 +9,19 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 
-class MissionStatus(str, Enum):
+class InvestigationStatus(str, Enum):
     QUEUED = "QUEUED"
     INVESTIGATING = "INVESTIGATING"
     INVESTIGATION_COMPLETE = "INVESTIGATION_COMPLETE"
     LAUNCHING = "LAUNCHING"
     FIX_IN_PROGRESS = "FIX_IN_PROGRESS"
-    MISSION_COMPLETE = "MISSION_COMPLETE"
+    RESOLVED = "RESOLVED"
     ROUTED = "ROUTED"
     CLOSED = "CLOSED"
     FAILED = "FAILED"
 
 
-class MissionClassification(str, Enum):
+class InvestigationClassification(str, Enum):
     STRIKE = "STRIKE"      # Auto-fixable, high confidence
     ASSIST = "ASSIST"      # Human needed with Devin briefing
     COMMAND = "COMMAND"     # Senior decision required
@@ -44,21 +44,21 @@ class InvestigationReport(BaseModel):
     complexity: str = ""  # low, medium, high
     fix_confidence: int = 0  # 1-100
     related_issues: list[int] = Field(default_factory=list)
-    classification: Optional[MissionClassification] = None
+    classification: Optional[InvestigationClassification] = None
     summary: str = ""
     recommended_fix: str = ""
 
 
-class Mission(BaseModel):
-    """A mission representing a GitHub issue under investigation."""
+class Investigation(BaseModel):
+    """An investigation representing a GitHub issue under investigation."""
     id: str
     issue_number: int
     issue_title: str
     issue_body: str
     issue_url: str
     issue_labels: list[str] = Field(default_factory=list)
-    status: MissionStatus = MissionStatus.QUEUED
-    classification: Optional[MissionClassification] = None
+    status: InvestigationStatus = InvestigationStatus.QUEUED
+    classification: Optional[InvestigationClassification] = None
     devin_session_id: Optional[str] = None
     fix_session_id: Optional[str] = None
     investigation_report: Optional[InvestigationReport] = None
@@ -78,7 +78,7 @@ class Mission(BaseModel):
             TelemetryStep(id="files", label="Files Identified"),
             TelemetryStep(id="git", label="Git History Traced"),
             TelemetryStep(id="root_cause", label="Root Cause Analysis"),
-            TelemetryStep(id="classify", label="Mission Classified"),
+            TelemetryStep(id="classify", label="Issue Classified"),
         ]
 
     def get_fix_telemetry(self) -> list[TelemetryStep]:
@@ -88,20 +88,20 @@ class Mission(BaseModel):
             TelemetryStep(id="test_write", label="Writing Regression Test"),
             TelemetryStep(id="test_run", label="Running Test Suite"),
             TelemetryStep(id="pr_open", label="Opening PR"),
-            TelemetryStep(id="mission_complete", label="MISSION COMPLETE"),
+            TelemetryStep(id="resolved", label="RESOLVED"),
         ]
 
 
 class SSEEvent(BaseModel):
     """An event sent to the dashboard via SSE."""
-    event_type: str  # mission_created, telemetry_update, investigation_complete, mission_complete, etc.
-    mission_id: str
+    event_type: str  # investigation_created, telemetry_update, investigation_complete, mission_complete, etc.
+    investigation_id: str
     data: dict = Field(default_factory=dict)
     timestamp: float = Field(default_factory=time.time)
 
 
 class DashboardState(BaseModel):
     """Full dashboard state for initial load."""
-    missions: dict[str, Mission] = Field(default_factory=dict)
+    investigations: dict[str, Investigation] = Field(default_factory=dict)
     stats: dict = Field(default_factory=dict)
     uptime_start: float = Field(default_factory=time.time)

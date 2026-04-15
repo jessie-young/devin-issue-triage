@@ -35,7 +35,7 @@ def _org_url(path: str) -> str:
 
 INVESTIGATION_PLAYBOOK = {
     "name": "FinServ Bug Investigation Protocol",
-    "description": "Structured investigation protocol for FinServ Platform issues. Devin follows this playbook to scan the codebase, trace git history, identify root cause, assess complexity, and classify the mission as STRIKE/ASSIST/COMMAND.",
+    "description": "Structured investigation protocol for FinServ Platform issues. Devin follows this playbook to scan the codebase, trace git history, identify root cause, assess complexity, and classify the investigation as STRIKE/ASSIST/COMMAND.",
     "content": """# FinServ Bug Investigation Protocol
 
 ## Objective

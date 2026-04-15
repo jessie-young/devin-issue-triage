@@ -9,17 +9,17 @@ import time
 from typing import Optional
 
 from app.config import settings
-from app.models.mission import (
+from app.models.investigation import (
     InvestigationReport,
-    Mission,
-    MissionClassification,
-    MissionStatus,
+    Investigation,
+    InvestigationClassification,
+    InvestigationStatus,
     SSEEvent,
 )
 from app.services.devin_client import devin_client
 from app.services.event_bus import event_bus
 from app.services.github_service import github_service
-from app.services.mission_store import mission_store
+from app.services.investigation_store import investigation_store
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ FIX_TELEMETRY_KEYWORDS = {
     "test_write": ["test", "regression", "spec", "describe(", "it(", "expect("],
     "test_run": ["npm test", "running test", "test suite", "PASS", "FAIL", "jest"],
     "pr_open": ["pull request", "PR", "opening pr", "created pr", "branch"],
-    "mission_complete": ["complete", "done", "finished", "merged"],
+    "resolved": ["complete", "done", "finished", "merged"],
 }
 
 
@@ -86,7 +86,7 @@ def _parse_investigation_report(messages: list[dict]) -> Optional[InvestigationR
     if cl_match:
         classification_str = cl_match.group(1).upper()
         try:
-            report.classification = MissionClassification(classification_str)
+            report.classification = InvestigationClassification(classification_str)
         except ValueError:
             pass
 
@@ -109,11 +109,11 @@ def _parse_investigation_report(messages: list[dict]) -> Optional[InvestigationR
     # Auto-classify if not explicitly classified
     if not report.classification:
         if report.fix_confidence >= 80:
-            report.classification = MissionClassification.STRIKE
+            report.classification = InvestigationClassification.STRIKE
         elif report.fix_confidence >= 50:
-            report.classification = MissionClassification.ASSIST
+            report.classification = InvestigationClassification.ASSIST
         else:
-            report.classification = MissionClassification.COMMAND
+            report.classification = InvestigationClassification.COMMAND
 
     return report
 
@@ -138,20 +138,20 @@ class SessionPoller:
         self._active_tasks: dict[str, asyncio.Task] = {}
         self._seen_messages: dict[str, set[str]] = {}
 
-    async def start_polling(self, mission_id: str, session_id: str, phase: str = "investigation") -> None:
-        """Start polling a session for a mission."""
-        task_key = f"{mission_id}:{phase}"
+    async def start_polling(self, investigation_id: str, session_id: str, phase: str = "investigation") -> None:
+        """Start polling a session for an investigation."""
+        task_key = f"{investigation_id}:{phase}"
         if task_key in self._active_tasks:
             return
 
         task = asyncio.create_task(
-            self._poll_loop(mission_id, session_id, phase)
+            self._poll_loop(investigation_id, session_id, phase)
         )
         self._active_tasks[task_key] = task
 
-    async def _poll_loop(self, mission_id: str, session_id: str, phase: str) -> None:
+    async def _poll_loop(self, investigation_id: str, session_id: str, phase: str) -> None:
         """Main polling loop for a session."""
-        task_key = f"{mission_id}:{phase}"
+        task_key = f"{investigation_id}:{phase}"
         self._seen_messages[task_key] = set()
         keywords = TELEMETRY_KEYWORDS if phase == "investigation" else FIX_TELEMETRY_KEYWORDS
         completed_steps: set[str] = set()
@@ -183,15 +183,15 @@ class SessionPoller:
                         for step_id in triggered_steps:
                             if step_id not in completed_steps:
                                 completed_steps.add(step_id)
-                                await mission_store.update_telemetry_step(
-                                    mission_id, step_id, "completed", text[:200]
+                                await investigation_store.update_telemetry_step(
+                                    investigation_id, step_id, "completed", text[:200]
                                 )
 
                         # Emit raw telemetry event for the strip
                         preview = text[:150].replace("\n", " ")
                         await event_bus.publish(SSEEvent(
                             event_type="telemetry_raw",
-                            mission_id=mission_id,
+                            investigation_id=investigation_id,
                             data={"text": preview},
                         ))
 
@@ -199,16 +199,16 @@ class SessionPoller:
                     if session_status in ("finished", "stopped", "failed"):
                         if phase == "investigation":
                             await self._handle_investigation_complete(
-                                mission_id, session_id, messages
+                                investigation_id, session_id, messages
                             )
                         elif phase == "fix":
                             await self._handle_fix_complete(
-                                mission_id, session_id, session, messages
+                                investigation_id, session_id, session, messages
                             )
                         break
 
                 except Exception as e:
-                    logger.error(f"Poll error for {mission_id}: {e}")
+                    logger.error(f"Poll error for {investigation_id}: {e}")
 
                 await asyncio.sleep(settings.poll_interval_seconds)
 
@@ -217,40 +217,40 @@ class SessionPoller:
             self._seen_messages.pop(task_key, None)
 
     async def _handle_investigation_complete(
-        self, mission_id: str, session_id: str, messages: list[dict]
+        self, investigation_id: str, session_id: str, messages: list[dict]
     ) -> None:
         """Handle completion of an investigation session."""
         report = _parse_investigation_report(messages)
 
-        mission = mission_store.get_mission(mission_id)
-        if not mission:
+        investigation = investigation_store.get_investigation(investigation_id)
+        if not investigation:
             return
 
         if report:
             # Mark all telemetry steps as completed
-            for step in mission.telemetry:
+            for step in investigation.telemetry:
                 if step.status != "completed":
-                    await mission_store.update_telemetry_step(
-                        mission_id, step.id, "completed"
+                    await investigation_store.update_telemetry_step(
+                        investigation_id, step.id, "completed"
                     )
 
-            await mission_store.update_mission(
-                mission_id,
-                status=MissionStatus.INVESTIGATION_COMPLETE,
+            await investigation_store.update_investigation(
+                investigation_id,
+                status=InvestigationStatus.INVESTIGATION_COMPLETE,
                 investigation_report=report,
                 classification=report.classification,
                 completed_at=time.time(),
-                elapsed_seconds=time.time() - (mission.started_at or mission.created_at),
+                elapsed_seconds=time.time() - (investigation.started_at or investigation.created_at),
             )
 
             # Post comment to GitHub
             await github_service.post_investigation_comment(
-                mission.issue_number, mission_id, report
+                investigation.issue_number, investigation_id, report
             )
 
             await event_bus.publish(SSEEvent(
                 event_type="investigation_complete",
-                mission_id=mission_id,
+                investigation_id=investigation_id,
                 data={
                     "classification": report.classification.value if report.classification else "UNKNOWN",
                     "confidence": report.fix_confidence,
@@ -258,18 +258,18 @@ class SessionPoller:
                 },
             ))
         else:
-            await mission_store.update_mission(
-                mission_id,
-                status=MissionStatus.FAILED,
+            await investigation_store.update_investigation(
+                investigation_id,
+                status=InvestigationStatus.FAILED,
                 error="Failed to parse investigation report",
             )
 
     async def _handle_fix_complete(
-        self, mission_id: str, session_id: str, session: dict, messages: list[dict]
+        self, investigation_id: str, session_id: str, session: dict, messages: list[dict]
     ) -> None:
         """Handle completion of a fix session."""
-        mission = mission_store.get_mission(mission_id)
-        if not mission:
+        investigation = investigation_store.get_investigation(investigation_id)
+        if not investigation:
             return
 
         # Try to find PR URL from session or messages
@@ -284,23 +284,23 @@ class SessionPoller:
                 pr_url = pr_match.group(0)
 
         # Mark all fix telemetry steps as completed
-        for step in mission.telemetry:
+        for step in investigation.telemetry:
             if step.status != "completed":
-                await mission_store.update_telemetry_step(
-                    mission_id, step.id, "completed"
+                await investigation_store.update_telemetry_step(
+                    investigation_id, step.id, "completed"
                 )
 
-        await mission_store.update_mission(
-            mission_id,
-            status=MissionStatus.MISSION_COMPLETE,
+        await investigation_store.update_investigation(
+            investigation_id,
+            status=InvestigationStatus.RESOLVED,
             pr_url=pr_url,
             completed_at=time.time(),
-            elapsed_seconds=time.time() - (mission.started_at or mission.created_at),
+            elapsed_seconds=time.time() - (investigation.started_at or investigation.created_at),
         )
 
         await event_bus.publish(SSEEvent(
-            event_type="mission_complete",
-            mission_id=mission_id,
+            event_type="investigation_resolved",
+            investigation_id=investigation_id,
             data={"pr_url": pr_url},
         ))
 

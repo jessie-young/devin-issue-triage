@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { Mission, DashboardState, TelemetryLogEntry, SSEEvent } from '../types/mission';
+import type { Investigation, DashboardState, TelemetryLogEntry, SSEEvent } from '../types/investigation';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8001';
 
-export function useMissionControl() {
-  const [missions, setMissions] = useState<Record<string, Mission>>({});
+export function useIssueTriage() {
+  const [investigations, setInvestigations] = useState<Record<string, Investigation>>({});
   const [stats, setStats] = useState({
     active: 0, completed: 0, queued: 0, total: 0, resolved_today: 0,
     strike_count: 0, assist_count: 0, command_count: 0,
@@ -15,11 +15,11 @@ export function useMissionControl() {
   const eventSourceRef = useRef<EventSource | null>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const addLogEntry = useCallback((missionId: string, text: string) => {
+  const addLogEntry = useCallback((investigationId: string, text: string) => {
     setTelemetryLog(prev => {
       const entry: TelemetryLogEntry = {
         timestamp: Date.now() / 1000,
-        mission_id: missionId,
+        investigation_id: investigationId,
         text,
       };
       const next = [...prev, entry];
@@ -27,18 +27,18 @@ export function useMissionControl() {
     });
   }, []);
 
-  const recalcStats = useCallback((missionMap: Record<string, Mission>) => {
-    const all = Object.values(missionMap);
+  const recalcStats = useCallback((investigationMap: Record<string, Investigation>) => {
+    const all = Object.values(investigationMap);
     const todayStart = new Date();
     todayStart.setUTCHours(0, 0, 0, 0);
     const todayStartSec = todayStart.getTime() / 1000;
     setStats({
       active: all.filter(m => ['INVESTIGATING', 'INVESTIGATION_COMPLETE', 'FIX_IN_PROGRESS', 'LAUNCHING'].includes(m.status)).length,
-      completed: all.filter(m => ['MISSION_COMPLETE', 'ROUTED', 'CLOSED'].includes(m.status)).length,
+      completed: all.filter(m => ['RESOLVED', 'ROUTED', 'CLOSED'].includes(m.status)).length,
       queued: all.filter(m => m.status === 'QUEUED').length,
       total: all.length,
       resolved_today: all.filter(m =>
-        ['MISSION_COMPLETE', 'ROUTED', 'CLOSED'].includes(m.status) &&
+        ['RESOLVED', 'ROUTED', 'CLOSED'].includes(m.status) &&
         m.completed_at != null && m.completed_at >= todayStartSec
       ).length,
       strike_count: all.filter(m => m.classification === 'STRIKE').length,
@@ -50,10 +50,10 @@ export function useMissionControl() {
   // Fetch initial state
   const fetchState = useCallback(async () => {
     try {
-      const resp = await fetch(`${API_BASE}/missions/state`);
+      const resp = await fetch(`${API_BASE}/investigations/state`);
       if (!resp.ok) return;
       const data: DashboardState = await resp.json();
-      setMissions(data.missions);
+      setInvestigations(data.investigations);
       setStats(data.stats);
       setUptimeStart(data.uptime_start);
     } catch {
@@ -66,7 +66,7 @@ export function useMissionControl() {
     fetchState();
 
     const connect = () => {
-      const es = new EventSource(`${API_BASE}/missions/stream`);
+      const es = new EventSource(`${API_BASE}/investigations/stream`);
       eventSourceRef.current = es;
 
       es.onopen = () => setConnected(true);
@@ -76,24 +76,24 @@ export function useMissionControl() {
         setTimeout(connect, 3000);
       };
 
-      es.addEventListener('mission_created', (e) => {
+      es.addEventListener('investigation_created', (e) => {
         const event: SSEEvent = JSON.parse(e.data);
-        addLogEntry(event.mission_id, `Mission ${event.mission_id} created: ${event.data.title || ''}`);
+        addLogEntry(event.investigation_id, `Investigation ${event.investigation_id} created: ${event.data.title || ''}`);
         fetchState();
       });
 
-      es.addEventListener('mission_updated', (e) => {
+      es.addEventListener('investigation_updated', (e) => {
         const event: SSEEvent = JSON.parse(e.data);
         const newStatus = event.data.status as string | undefined;
         // If status changed to a terminal/phase state, do a full refetch for accurate data
-        // Note: MISSION_COMPLETE log entry is handled by the dedicated mission_complete event handler
-        if (newStatus && ['MISSION_COMPLETE', 'ROUTED', 'CLOSED', 'FAILED', 'FIX_IN_PROGRESS', 'LAUNCHING'].includes(newStatus)) {
+        // Note: RESOLVED log entry is handled by the dedicated investigation_resolved event handler
+        if (newStatus && ['RESOLVED', 'ROUTED', 'CLOSED', 'FAILED', 'FIX_IN_PROGRESS', 'LAUNCHING'].includes(newStatus)) {
           fetchState();
         } else {
-          setMissions(prev => {
+          setInvestigations(prev => {
             const updated = { ...prev };
-            if (updated[event.mission_id]) {
-              updated[event.mission_id] = { ...updated[event.mission_id], ...event.data } as Mission;
+            if (updated[event.investigation_id]) {
+              updated[event.investigation_id] = { ...updated[event.investigation_id], ...event.data } as Investigation;
             }
             recalcStats(updated);
             return updated;
@@ -107,40 +107,40 @@ export function useMissionControl() {
         const status = event.data.status as string;
         const detail = event.data.detail as string | undefined;
 
-        setMissions(prev => {
+        setInvestigations(prev => {
           const updated = { ...prev };
-          const mission = updated[event.mission_id];
-          if (mission) {
-            updated[event.mission_id] = {
-              ...mission,
-              telemetry: mission.telemetry.map(s =>
+          const investigation = updated[event.investigation_id];
+          if (investigation) {
+            updated[event.investigation_id] = {
+              ...investigation,
+              telemetry: investigation.telemetry.map(s =>
                 s.id === stepId ? { ...s, status, timestamp: Date.now() / 1000, detail: detail || s.detail } : s
               ),
-            } as Mission;
+            } as Investigation;
           }
           return updated;
         });
 
         if (detail) {
-          addLogEntry(event.mission_id, detail);
+          addLogEntry(event.investigation_id, detail);
         }
       });
 
       es.addEventListener('telemetry_raw', (e) => {
         const event: SSEEvent = JSON.parse(e.data);
-        addLogEntry(event.mission_id, event.data.text as string);
+        addLogEntry(event.investigation_id, event.data.text as string);
       });
 
       es.addEventListener('investigation_complete', (e) => {
         const event: SSEEvent = JSON.parse(e.data);
-        addLogEntry(event.mission_id, `Investigation complete — ${event.data.classification} (confidence: ${event.data.confidence})`);
+        addLogEntry(event.investigation_id, `Investigation complete — ${event.data.classification} (confidence: ${event.data.confidence})`);
         fetchState();
       });
 
-      es.addEventListener('mission_complete', (e) => {
+      es.addEventListener('investigation_resolved', (e) => {
         const event: SSEEvent = JSON.parse(e.data);
         const prUrl = event.data.pr_url as string | undefined;
-        addLogEntry(event.mission_id, `MISSION COMPLETE${prUrl ? ` — PR: ${prUrl}` : ''}`);
+        addLogEntry(event.investigation_id, `RESOLVED${prUrl ? ` — PR: ${prUrl}` : ''}`);
         fetchState();
       });
     };
@@ -157,18 +157,18 @@ export function useMissionControl() {
   }, [fetchState, addLogEntry, recalcStats]);
 
   // Launch a fix
-  const launchFix = useCallback(async (missionId: string) => {
+  const launchFix = useCallback(async (investigationId: string) => {
     try {
-      const resp = await fetch(`${API_BASE}/missions/launch`, {
+      const resp = await fetch(`${API_BASE}/investigations/launch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mission_id: missionId }),
+        body: JSON.stringify({ investigation_id: investigationId }),
       });
       if (!resp.ok) {
         const err = await resp.json();
         throw new Error(err.detail || 'Launch failed');
       }
-      addLogEntry(missionId, 'Apply Fix initiated');
+      addLogEntry(investigationId, 'Apply Fix initiated');
       await fetchState();
       // Poll for updates during simulated fix (every 2s for 20s)
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
@@ -186,12 +186,12 @@ export function useMissionControl() {
         }
       }, 2000);
     } catch (err) {
-      addLogEntry(missionId, `Launch error: ${err}`);
+      addLogEntry(investigationId, `Launch error: ${err}`);
     }
   }, [addLogEntry, fetchState]);
 
-  // File a manual mission
-  const fileMission = useCallback(async (issueInput: string) => {
+  // File a manual investigation
+  const fileInvestigation = useCallback(async (issueInput: string) => {
     try {
       const body: Record<string, unknown> = {};
       if (issueInput.includes('github.com')) {
@@ -199,30 +199,30 @@ export function useMissionControl() {
       } else {
         body.issue_number = parseInt(issueInput, 10);
       }
-      const resp = await fetch(`${API_BASE}/missions/file`, {
+      const resp = await fetch(`${API_BASE}/investigations/file`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       if (!resp.ok) {
         const err = await resp.json();
-        throw new Error(err.detail || 'File mission failed');
+        throw new Error(err.detail || 'File investigation failed');
       }
       const data = await resp.json();
-      addLogEntry(data.mission_id, 'Manual mission filed');
+      addLogEntry(data.investigation_id, 'Manual investigation filed');
       await fetchState();
     } catch (err) {
-      addLogEntry('SYSTEM', `File mission error: ${err}`);
+      addLogEntry('SYSTEM', `File investigation error: ${err}`);
     }
   }, [addLogEntry, fetchState]);
 
   return {
-    missions,
+    investigations,
     stats,
     uptimeStart,
     telemetryLog,
     connected,
     launchFix,
-    fileMission,
+    fileInvestigation,
   };
 }

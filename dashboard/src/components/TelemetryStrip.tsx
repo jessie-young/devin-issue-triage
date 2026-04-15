@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { List } from 'lucide-react';
-import type { TelemetryLogEntry } from '../types/mission';
+import type { TelemetryLogEntry } from '../types/investigation';
 
 interface TelemetryStripProps {
   entries: TelemetryLogEntry[];
@@ -34,7 +34,7 @@ export function TelemetryStrip({ entries }: TelemetryStripProps) {
           entries.map((entry, i) => (
             <div key={i} className="flex gap-3 py-0.5 hover:bg-app-panel/50 rounded">
               <span className="text-app-text-muted flex-shrink-0">{formatTime(entry.timestamp)}</span>
-              <span className="text-app-primary flex-shrink-0 w-24 truncate font-medium">{entry.mission_id}</span>
+              <span className="text-app-primary flex-shrink-0 w-24 truncate font-medium">{entry.investigation_id}</span>
               <span className="text-app-text-secondary truncate">{entry.text}</span>
             </div>
           ))

@@ -4,10 +4,10 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, LineChart, Line, CartesianGrid,
 } from 'recharts';
-import type { Mission } from '../types/mission';
+import type { Investigation } from '../types/investigation';
 
 interface MetricsPanelProps {
-  missions: Mission[];
+  investigations: Investigation[];
   onClose: () => void;
 }
 
@@ -18,11 +18,11 @@ const COLORS = {
   primary: '#4f46e5',
 };
 
-export function MetricsPanel({ missions, onClose }: MetricsPanelProps) {
+export function MetricsPanel({ investigations, onClose }: MetricsPanelProps) {
   // Issues resolved over time (group by day)
   const resolvedOverTime = useMemo(() => {
-    const resolved = missions.filter(m =>
-      ['MISSION_COMPLETE', 'ROUTED', 'CLOSED'].includes(m.status) && m.completed_at
+    const resolved = investigations.filter(m =>
+      ['RESOLVED', 'ROUTED', 'CLOSED'].includes(m.status) && m.completed_at
     );
     const dayMap: Record<string, number> = {};
     resolved.forEach(m => {
@@ -33,20 +33,20 @@ export function MetricsPanel({ missions, onClose }: MetricsPanelProps) {
     return Object.entries(dayMap)
       .map(([date, count]) => ({ date, count }))
       .sort((a, b) => new Date(a.date + ' 2026').getTime() - new Date(b.date + ' 2026').getTime());
-  }, [missions]);
+  }, [investigations]);
 
   // Average investigation time
   const avgInvestigationTime = useMemo(() => {
-    const withTime = missions.filter(m => m.elapsed_seconds && m.elapsed_seconds > 0);
+    const withTime = investigations.filter(m => m.elapsed_seconds && m.elapsed_seconds > 0);
     if (withTime.length === 0) return 0;
     const total = withTime.reduce((sum, m) => sum + (m.elapsed_seconds || 0), 0);
     return Math.round(total / withTime.length);
-  }, [missions]);
+  }, [investigations]);
 
   // Classification distribution (pie chart)
   const classificationDist = useMemo(() => {
     const counts = { STRIKE: 0, ASSIST: 0, COMMAND: 0 };
-    missions.forEach(m => {
+    investigations.forEach(m => {
       if (m.classification && m.classification in counts) {
         counts[m.classification as keyof typeof counts]++;
       }
@@ -56,12 +56,12 @@ export function MetricsPanel({ missions, onClose }: MetricsPanelProps) {
       { name: 'Needs Review', value: counts.ASSIST, color: COLORS.assist },
       { name: 'Escalate', value: counts.COMMAND, color: COLORS.command },
     ].filter(d => d.value > 0);
-  }, [missions]);
+  }, [investigations]);
 
   // Module-level issue distribution
   const moduleDistribution = useMemo(() => {
     const modules: Record<string, number> = {};
-    missions.forEach(m => {
+    investigations.forEach(m => {
       const report = m.investigation_report;
       if (report?.relevant_files) {
         report.relevant_files.forEach(f => {
@@ -77,17 +77,17 @@ export function MetricsPanel({ missions, onClose }: MetricsPanelProps) {
       .map(([module, count]) => ({ module, count }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 8);
-  }, [missions]);
+  }, [investigations]);
 
   // Backlog trajectory (cumulative issues in vs out)
   const backlogTrajectory = useMemo(() => {
-    const allSorted = [...missions].sort((a, b) => a.created_at - b.created_at);
+    const allSorted = [...investigations].sort((a, b) => a.created_at - b.created_at);
     let opened = 0;
     let resolved = 0;
     const points: { label: string; backlog: number }[] = [];
     allSorted.forEach((m, i) => {
       opened++;
-      if (['MISSION_COMPLETE', 'ROUTED', 'CLOSED'].includes(m.status)) {
+      if (['RESOLVED', 'ROUTED', 'CLOSED'].includes(m.status)) {
         resolved++;
       }
       if (i % Math.max(1, Math.floor(allSorted.length / 10)) === 0 || i === allSorted.length - 1) {
@@ -98,7 +98,7 @@ export function MetricsPanel({ missions, onClose }: MetricsPanelProps) {
       }
     });
     return points;
-  }, [missions]);
+  }, [investigations]);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -128,17 +128,17 @@ export function MetricsPanel({ missions, onClose }: MetricsPanelProps) {
 
         {/* Summary stats */}
         <div className="grid grid-cols-4 gap-4 px-6 py-4 border-b border-app-border">
-          <StatCard label="Total Issues" value={missions.length} />
+          <StatCard label="Total Issues" value={investigations.length} />
           <StatCard
             label="Resolved"
-            value={missions.filter(m => ['MISSION_COMPLETE', 'ROUTED', 'CLOSED'].includes(m.status)).length}
+            value={investigations.filter(m => ['RESOLVED', 'ROUTED', 'CLOSED'].includes(m.status)).length}
           />
           <StatCard label="Avg Investigation" value={formatTime(avgInvestigationTime)} />
           <StatCard
             label="Auto-fix Rate"
             value={
-              missions.length > 0
-                ? `${Math.round((missions.filter(m => m.classification === 'STRIKE').length / missions.length) * 100)}%`
+              investigations.length > 0
+                ? `${Math.round((investigations.filter(m => m.classification === 'STRIKE').length / investigations.length) * 100)}%`
                 : '0%'
             }
           />

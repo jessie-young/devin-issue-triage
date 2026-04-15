@@ -10,9 +10,9 @@ import time
 from fastapi import APIRouter, Header, HTTPException, Request
 
 from app.config import settings
-from app.models.mission import MissionStatus
+from app.models.investigation import InvestigationStatus
 from app.services.devin_client import devin_client
-from app.services.mission_store import mission_store
+from app.services.investigation_store import investigation_store
 from app.services.session_poller import session_poller
 
 logger = logging.getLogger(__name__)
@@ -64,8 +64,8 @@ async def github_webhook(
     if not issue_number:
         raise HTTPException(status_code=400, detail="Missing issue number")
 
-    # Create mission
-    mission = await mission_store.create_mission(
+    # Create investigation
+    investigation = await investigation_store.create_investigation(
         issue_number=issue_number,
         issue_title=issue_title,
         issue_body=issue_body,
@@ -83,31 +83,31 @@ async def github_webhook(
         )
         session_id = session.get("session_id") or session.get("id", "")
 
-        await mission_store.update_mission(
-            mission.id,
-            status=MissionStatus.INVESTIGATING,
+        await investigation_store.update_investigation(
+            investigation.id,
+            status=InvestigationStatus.INVESTIGATING,
             devin_session_id=session_id,
             started_at=time.time(),
         )
-        await mission_store.update_telemetry_step(mission.id, "ingest", "completed")
+        await investigation_store.update_telemetry_step(investigation.id, "ingest", "completed")
 
         # Start polling
-        await session_poller.start_polling(mission.id, session_id, "investigation")
+        await session_poller.start_polling(investigation.id, session_id, "investigation")
 
-        return {"status": "accepted", "mission_id": mission.id, "session_id": session_id}
+        return {"status": "accepted", "investigation_id": investigation.id, "session_id": session_id}
 
     except Exception as e:
         logger.warning(f"Devin API unavailable, falling back to simulated investigation: {e}")
         # Fall back to simulation
         import asyncio as _asyncio
-        from app.routers.missions import simulate_investigation as _sim_fn
+        from app.routers.investigations import simulate_investigation as _sim_fn
 
         async def _simulate_webhook_investigation():
             try:
                 await _asyncio.sleep(1)
-                await _sim_fn(mission.id)
+                await _sim_fn(investigation.id)
             except Exception as exc:
-                logger.error(f"Simulated investigation failed for {mission.id}: {exc}")
+                logger.error(f"Simulated investigation failed for {investigation.id}: {exc}")
 
         _asyncio.ensure_future(_simulate_webhook_investigation())
-        return {"status": "accepted_simulated", "mission_id": mission.id}
+        return {"status": "accepted_simulated", "investigation_id": investigation.id}

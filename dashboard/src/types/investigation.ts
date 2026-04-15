@@ -1,15 +1,15 @@
-export type MissionStatus =
+export type InvestigationStatus =
   | 'QUEUED'
   | 'INVESTIGATING'
   | 'INVESTIGATION_COMPLETE'
   | 'LAUNCHING'
   | 'FIX_IN_PROGRESS'
-  | 'MISSION_COMPLETE'
+  | 'RESOLVED'
   | 'ROUTED'
   | 'CLOSED'
   | 'FAILED';
 
-export type MissionClassification = 'STRIKE' | 'ASSIST' | 'COMMAND';
+export type InvestigationClassification = 'STRIKE' | 'ASSIST' | 'COMMAND';
 
 export interface TelemetryStep {
   id: string;
@@ -26,20 +26,20 @@ export interface InvestigationReport {
   complexity: string;
   fix_confidence: number;
   related_issues: number[];
-  classification: MissionClassification | null;
+  classification: InvestigationClassification | null;
   summary: string;
   recommended_fix: string;
 }
 
-export interface Mission {
+export interface Investigation {
   id: string;
   issue_number: number;
   issue_title: string;
   issue_body: string;
   issue_url: string;
   issue_labels: string[];
-  status: MissionStatus;
-  classification: MissionClassification | null;
+  status: InvestigationStatus;
+  classification: InvestigationClassification | null;
   devin_session_id: string | null;
   fix_session_id: string | null;
   investigation_report: InvestigationReport | null;
@@ -54,7 +54,7 @@ export interface Mission {
 
 export interface SSEEvent {
   event_type: string;
-  mission_id: string;
+  investigation_id: string;
   data: Record<string, unknown>;
   timestamp: number;
 }
@@ -71,13 +71,13 @@ export interface DashboardStats {
 }
 
 export interface DashboardState {
-  missions: Record<string, Mission>;
+  investigations: Record<string, Investigation>;
   stats: DashboardStats;
   uptime_start: number;
 }
 
 export interface TelemetryLogEntry {
   timestamp: number;
-  mission_id: string;
+  investigation_id: string;
   text: string;
 }
