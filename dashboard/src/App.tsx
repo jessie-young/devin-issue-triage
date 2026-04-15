@@ -60,15 +60,15 @@ function App() {
           <div className="flex items-center gap-3 text-xs font-medium">
             <span className="flex items-center gap-1.5 text-app-success">
               <span className="w-2 h-2 rounded-full bg-app-success" />
-              Auto-fix <span className="font-semibold">{stats.strike_count}</span>
+              Auto-fix <span className="font-semibold">{stats.auto_fix_count}</span>
             </span>
             <span className="flex items-center gap-1.5 text-app-warning">
               <span className="w-2 h-2 rounded-full bg-app-warning" />
-              Needs Review <span className="font-semibold">{stats.assist_count}</span>
+              Needs Review <span className="font-semibold">{stats.needs_review_count}</span>
             </span>
             <span className="flex items-center gap-1.5 text-app-danger">
               <span className="w-2 h-2 rounded-full bg-app-danger" />
-              Escalate <span className="font-semibold">{stats.command_count}</span>
+              Escalate <span className="font-semibold">{stats.escalate_count}</span>
             </span>
           </div>
         </div>
