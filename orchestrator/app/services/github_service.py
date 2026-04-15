@@ -8,13 +8,13 @@ from typing import Optional
 import httpx
 
 from app.config import settings
-from app.models.mission import InvestigationReport, MissionClassification
+from app.models.investigation import InvestigationReport, InvestigationClassification
 
 logger = logging.getLogger(__name__)
 
 COMMENT_TEMPLATE = """## Investigation Report
 
-**Mission ID:** {mission_id}
+**Investigation ID:** {investigation_id}
 **Classification:** {classification_badge}
 **Fix Confidence:** {confidence}/100
 **Complexity:** {complexity}
@@ -49,28 +49,28 @@ COMMENT_TEMPLATE = """## Investigation Report
 """
 
 
-def _classification_badge(classification: MissionClassification | None) -> str:
-    if classification == MissionClassification.STRIKE:
+def _classification_badge(classification: InvestigationClassification | None) -> str:
+    if classification == InvestigationClassification.STRIKE:
         return "STRIKE — Auto-fixable"
-    elif classification == MissionClassification.ASSIST:
+    elif classification == InvestigationClassification.ASSIST:
         return "ASSIST — Human review needed"
-    elif classification == MissionClassification.COMMAND:
+    elif classification == InvestigationClassification.COMMAND:
         return "COMMAND — Senior decision required"
     return "UNKNOWN"
 
 
-def _classification_note(classification: MissionClassification | None) -> str:
-    if classification == MissionClassification.STRIKE:
+def _classification_note(classification: InvestigationClassification | None) -> str:
+    if classification == InvestigationClassification.STRIKE:
         return (
             "**Next step:** This issue has been classified as auto-fixable. "
             "Click **Apply Fix** on the Issue Triage dashboard to have Devin implement the fix and open a PR."
         )
-    elif classification == MissionClassification.ASSIST:
+    elif classification == InvestigationClassification.ASSIST:
         return (
             "**Next step:** This issue needs human review of the investigation findings before proceeding. "
             "Please review the root cause analysis and recommended fix, then decide whether to proceed with the automated fix."
         )
-    elif classification == MissionClassification.COMMAND:
+    elif classification == InvestigationClassification.COMMAND:
         return (
             "**Next step:** This issue requires a senior engineering decision. "
             "The automated investigation has identified the problem but the fix involves architectural trade-offs "
@@ -96,7 +96,7 @@ class GitHubService:
     async def post_investigation_comment(
         self,
         issue_number: int,
-        mission_id: str,
+        investigation_id: str,
         report: InvestigationReport,
     ) -> dict | None:
         """Post the investigation report as a comment on the GitHub issue."""
@@ -105,7 +105,7 @@ class GitHubService:
         related = ", ".join(f"#{i}" for i in report.related_issues) if report.related_issues else "None"
 
         body = COMMENT_TEMPLATE.format(
-            mission_id=mission_id,
+            investigation_id=investigation_id,
             classification_badge=_classification_badge(report.classification),
             confidence=report.fix_confidence,
             complexity=report.complexity,

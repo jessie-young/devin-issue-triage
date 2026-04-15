@@ -49,7 +49,7 @@ Rate your confidence in being able to fix this autonomously: 1-100
 - Below 50: Needs human input on approach
 
 ### Step 7: Classification
-Based on your analysis, classify this mission:
+Based on your analysis, classify this investigation:
 - **STRIKE**: Fix confidence >= 80, low/medium complexity, clear fix path. You can fix this autonomously.
 - **ASSIST**: Fix confidence 50-79, or medium complexity with trade-offs. Human should review your briefing before proceeding.
 - **COMMAND**: Fix confidence < 50, high complexity, or requires architectural decisions. Needs senior engineer decision.

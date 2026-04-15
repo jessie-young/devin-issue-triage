@@ -8,7 +8,7 @@ import logging
 import time
 from typing import AsyncGenerator
 
-from app.models.mission import SSEEvent
+from app.models.investigation import SSEEvent
 
 logger = logging.getLogger(__name__)
 

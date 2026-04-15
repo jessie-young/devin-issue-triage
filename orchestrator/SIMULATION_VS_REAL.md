@@ -10,7 +10,7 @@ This document identifies every component that has simulation, mock, or hardcoded
 
 **Classification: SIMULATION**
 
-- **What it does now:** When `DEVIN_API_KEY` and `DEVIN_ORG_ID` are not set, `devin_client.create_investigation_session()` raises an exception (no mock fallback in the client itself). The webhook handler catches that exception and falls back to calling the `/missions/simulate/{id}` endpoint, which populates the mission with pre-built investigation data from a keyword-matching lookup table in `missions.py:_get_simulation_data()`.
+- **What it does now:** When `DEVIN_API_KEY` and `DEVIN_ORG_ID` are not set, `devin_client.create_investigation_session()` raises an exception (no mock fallback in the client itself). The webhook handler catches that exception and falls back to calling the `/investigations/simulate/{id}` endpoint, which populates the investigation with pre-built investigation data from a keyword-matching lookup table in `_get_simulation_data:_get_simulation_data()`.
 - **What needs to change:** Set `DEVIN_API_KEY` and `DEVIN_ORG_ID` environment variables on the Fly.io backend. The real code path in `devin_client.py` already constructs the correct Devin API v3 org-scoped request to `POST /organizations/{org_id}/sessions`.
 - **What's needed:**
   - A Devin Service User with `ManageOrgSessions` permission (create at Settings → Service Users)
@@ -20,7 +20,7 @@ This document identifies every component that has simulation, mock, or hardcoded
 
 **Classification: SIMULATION**
 
-- **What it does now:** `launch_fix()` in `missions.py` calls `devin_client.create_fix_session()`. If that fails, it falls back to `_simulate_fix()` — an async task that sleeps through 5 telemetry steps (1.5s each) and marks the mission as complete. The `pr_url` is set to the issue URL (not a real PR).
+- **What it does now:** `launch_fix()` in `_get_simulation_data` calls `devin_client.create_fix_session()`. If that fails, it falls back to `_simulate_fix()` — an async task that sleeps through 5 telemetry steps (1.5s each) and marks the investigation as complete. The `pr_url` is set to the issue URL (not a real PR).
 - **What needs to change:** With valid Devin API credentials, the real code path creates a Devin session with the fix prompt. The session poller then tracks real progress. A real PR URL comes from Devin's actual PR creation.
 - **What's needed:** Same Devin API credentials as above.
 
@@ -36,7 +36,7 @@ This document identifies every component that has simulation, mock, or hardcoded
 
 **Classification: REAL**
 
-- **What it does now:** The webhook endpoint at `/webhooks/github` is live and connected to `jessie-young/demo-finserv-repo`. It receives real `issues` events (opened/labeled), verifies signatures if configured, and creates missions. When the Devin API is unavailable, it falls back to simulated investigation.
+- **What it does now:** The webhook endpoint at `/webhooks/github` is live and connected to `jessie-young/demo-finserv-repo`. It receives real `issues` events (opened/labeled), verifies signatures if configured, and creates investigations. When the Devin API is unavailable, it falls back to simulated investigation.
 - **What needs to change:** Nothing for the webhook itself — it works end-to-end. For real investigations, Devin API credentials need to be set.
 - **What's needed:** Webhook is already configured at `https://app-ehojkbnz.fly.dev/webhooks/github`.
 
@@ -56,15 +56,15 @@ This document identifies every component that has simulation, mock, or hardcoded
 
 **Classification: SIMULATION**
 
-- **What it does now:** In simulation mode, the `pr_url` on completed STRIKE missions is set to the GitHub issue URL (e.g., `https://github.com/.../issues/5`). No real PR is created. The "View Pull Request" link on the dashboard points to the issue page.
-- **What needs to change:** When Devin API is connected and a fix session runs, Devin will create a real PR on the repo. The session poller extracts the PR URL from Devin's messages and sets it on the mission.
+- **What it does now:** In simulation mode, the `pr_url` on completed STRIKE investigations is set to the GitHub issue URL (e.g., `https://github.com/.../issues/5`). No real PR is created. The "View Pull Request" link on the dashboard points to the issue page.
+- **What needs to change:** When Devin API is connected and a fix session runs, Devin will create a real PR on the repo. The session poller extracts the PR URL from Devin's messages and sets it on the investigation.
 - **What's needed:** Devin API credentials + the target repo must be connected to Devin's GitHub integration.
 
 ### 7. SSE Streaming
 
 **Classification: REAL**
 
-- **What it does now:** The `event_bus.py` SSE system is fully real. Events are published to an in-memory queue, and the dashboard connects to `/missions/stream` via `EventSource`. Events flow in real time — mission created, telemetry updates, investigation complete, mission complete.
+- **What it does now:** The `event_bus.py` SSE system is fully real. Events are published to an in-memory queue, and the dashboard connects to `/investigations/stream` via `EventSource`. Events flow in real time — investigation created, telemetry updates, investigation complete, investigation resolved.
 - **What needs to change:** Nothing. SSE works the same whether the underlying data is simulated or real.
 - **What's needed:** Already working.
 
@@ -80,7 +80,7 @@ This document identifies every component that has simulation, mock, or hardcoded
 
 **Classification: SIMULATION**
 
-- **What it does now:** On startup, `main.py` calls `/missions/ingest-all` to fetch all open GitHub issues via the real GitHub API, then calls `/missions/simulate/{id}` for each to populate them with hardcoded investigation results from `_get_simulation_data()`. ASSIST/COMMAND missions are routed to the Completed column. This gives the dashboard a rich initial state.
+- **What it does now:** On startup, `main.py` calls `/investigations/ingest-all` to fetch all open GitHub issues via the real GitHub API, then calls `/investigations/simulate/{id}` for each to populate them with hardcoded investigation results from `_get_simulation_data()`. ASSIST/COMMAND investigations are routed to the Completed column. This gives the dashboard a rich initial state.
 - **What needs to change:** For a live demo, you would run real Devin investigations against all issues before the demo (by temporarily enabling the Devin API and triggering investigations). The auto-seed logic would be disabled or replaced.
 - **What's needed:** Run investigations ahead of time, or keep simulation for demo purposes.
 
@@ -88,13 +88,13 @@ This document identifies every component that has simulation, mock, or hardcoded
 
 **Classification: PARTIAL**
 
-- **What it does now:** The MetricsPanel computes all charts dynamically from the actual mission data in the dashboard state:
+- **What it does now:** The MetricsPanel computes all charts dynamically from the actual investigation data in the dashboard state:
   - Classification distribution (pie chart) — computed from real classification counts
   - Issues by module (bar chart) — computed from `relevant_files` in investigation reports
   - Issues resolved over time (bar chart) — computed from `completed_at` timestamps
   - Backlog trajectory (line chart) — computed from cumulative created vs completed
 - **Real parts:** Chart logic is real and data-driven. No hardcoded chart data.
-- **Simulated parts:** The underlying mission data is from simulation, so the charts reflect simulated investigation results.
+- **Simulated parts:** The underlying investigation data is from simulation, so the charts reflect simulated investigation results.
 - **What needs to change:** Nothing in the chart code. Charts will automatically reflect real data once investigations are real.
 - **What's needed:** Real investigation data.
 
@@ -123,7 +123,7 @@ This document identifies every component that has simulation, mock, or hardcoded
 
 **Classification: REAL**
 
-- **What it does now:** The dashboard's "Add Issue" input calls `POST /missions/file` with an issue URL or number. The orchestrator fetches the real issue from GitHub, creates a mission, and attempts to start a Devin investigation (falling back to simulation if unavailable).
+- **What it does now:** The dashboard's "Add Issue" input calls `POST /investigations/file` with an issue URL or number. The orchestrator fetches the real issue from GitHub, creates an investigation, and attempts to start a Devin investigation (falling back to simulation if unavailable).
 - **What needs to change:** Nothing — works end-to-end in both modes.
 - **What's needed:** Already working.
 
@@ -179,7 +179,7 @@ Ensure `jessie-young/demo-finserv-repo` is accessible to Devin's GitHub integrat
 ### Step 5: Pre-seed with Real Investigations (30-60 min)
 Before the demo, trigger real investigations for all 19 existing issues:
 1. Temporarily disable auto-seed in `main.py` (comment out the seed block)
-2. Use the "Add Issue" button on the dashboard, or call `POST /missions/ingest-all` followed by individual investigation triggers
+2. Use the "Add Issue" button on the dashboard, or call `POST /investigations/ingest-all` followed by individual investigation triggers
 3. Wait for all Devin sessions to complete
 4. The dashboard will fill with real investigation data, real comments on GitHub issues, and real classifications
 
@@ -187,7 +187,7 @@ Before the demo, trigger real investigations for all 19 existing issues:
 1. Open the dashboard — it shows pre-seeded completed investigations
 2. File a new GitHub issue on `demo-finserv-repo`
 3. The webhook triggers a real Devin investigation → dashboard shows live telemetry
-4. When investigation completes, click "Apply Fix" on a STRIKE mission
+4. When investigation completes, click "Apply Fix" on a STRIKE investigation
 5. Devin creates a real PR → "View Pull Request" links to the actual PR
 
 ### Optional: Machine Snapshots

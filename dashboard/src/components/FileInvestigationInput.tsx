@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { Send, Plus, X } from 'lucide-react';
 
-interface FileMissionInputProps {
+interface FileInvestigationInputProps {
   onFile: (input: string) => void;
 }
 
-export function FileMissionInput({ onFile }: FileMissionInputProps) {
+export function FileInvestigationInput({ onFile }: FileInvestigationInputProps) {
   const [input, setInput] = useState('');
   const [isOpen, setIsOpen] = useState(false);
 
