@@ -81,10 +81,16 @@ def _parse_investigation_report(messages: list[dict]) -> Optional[InvestigationR
     if fc_match:
         report.fix_confidence = min(100, max(0, int(fc_match.group(1))))
 
-    # Extract classification
+    # Extract classification (with backward-compat mapping for old names)
+    _CLASSIFICATION_ALIASES = {
+        "STRIKE": "AUTO_FIX",
+        "ASSIST": "NEEDS_REVIEW",
+        "COMMAND": "ESCALATE",
+    }
     cl_match = re.search(r"CLASSIFICATION[:\s]*(AUTO_FIX|NEEDS_REVIEW|ESCALATE|STRIKE|ASSIST|COMMAND)", full_text, re.IGNORECASE)
     if cl_match:
         classification_str = cl_match.group(1).upper()
+        classification_str = _CLASSIFICATION_ALIASES.get(classification_str, classification_str)
         try:
             report.classification = InvestigationClassification(classification_str)
         except ValueError:
