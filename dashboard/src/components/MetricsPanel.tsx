@@ -12,9 +12,9 @@ interface MetricsPanelProps {
 }
 
 const COLORS = {
-  strike: '#059669',
-  assist: '#d97706',
-  command: '#dc2626',
+  autoFix: '#059669',
+  needsReview: '#d97706',
+  escalate: '#dc2626',
   primary: '#4f46e5',
 };
 
@@ -45,16 +45,16 @@ export function MetricsPanel({ investigations, onClose }: MetricsPanelProps) {
 
   // Classification distribution (pie chart)
   const classificationDist = useMemo(() => {
-    const counts = { STRIKE: 0, ASSIST: 0, COMMAND: 0 };
+    const counts = { AUTO_FIX: 0, NEEDS_REVIEW: 0, ESCALATE: 0 };
     investigations.forEach(m => {
       if (m.classification && m.classification in counts) {
         counts[m.classification as keyof typeof counts]++;
       }
     });
     return [
-      { name: 'Auto-fix', value: counts.STRIKE, color: COLORS.strike },
-      { name: 'Needs Review', value: counts.ASSIST, color: COLORS.assist },
-      { name: 'Escalate', value: counts.COMMAND, color: COLORS.command },
+      { name: 'Auto-fix', value: counts.AUTO_FIX, color: COLORS.autoFix },
+      { name: 'Needs Review', value: counts.NEEDS_REVIEW, color: COLORS.needsReview },
+      { name: 'Escalate', value: counts.ESCALATE, color: COLORS.escalate },
     ].filter(d => d.value > 0);
   }, [investigations]);
 
@@ -138,7 +138,7 @@ export function MetricsPanel({ investigations, onClose }: MetricsPanelProps) {
             label="Auto-fix Rate"
             value={
               investigations.length > 0
-                ? `${Math.round((investigations.filter(m => m.classification === 'STRIKE').length / investigations.length) * 100)}%`
+                ? `${Math.round((investigations.filter(m => m.classification === 'AUTO_FIX').length / investigations.length) * 100)}%`
                 : '0%'
             }
           />
@@ -206,7 +206,7 @@ export function MetricsPanel({ investigations, onClose }: MetricsPanelProps) {
                   <XAxis dataKey="date" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
                   <Tooltip />
-                  <Bar dataKey="count" fill={COLORS.strike} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="count" fill={COLORS.autoFix} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (

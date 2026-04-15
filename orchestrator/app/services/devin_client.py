@@ -50,9 +50,9 @@ Rate your confidence in being able to fix this autonomously: 1-100
 
 ### Step 7: Classification
 Based on your analysis, classify this investigation:
-- **STRIKE**: Fix confidence >= 80, low/medium complexity, clear fix path. You can fix this autonomously.
-- **ASSIST**: Fix confidence 50-79, or medium complexity with trade-offs. Human should review your briefing before proceeding.
-- **COMMAND**: Fix confidence < 50, high complexity, or requires architectural decisions. Needs senior engineer decision.
+- **AUTO_FIX**: Fix confidence >= 80, low/medium complexity, clear fix path. You can fix this autonomously.
+- **NEEDS_REVIEW**: Fix confidence 50-79, or medium complexity with trade-offs. Human should review your briefing before proceeding.
+- **ESCALATE**: Fix confidence < 50, high complexity, or requires architectural decisions. Needs senior engineer decision.
 
 ### Step 8: Related Issues
 Check if other open issues might be related to the same root cause.
@@ -70,7 +70,7 @@ GIT HISTORY: [list relevant commits with authors and dates]
 ROOT CAUSE: [detailed explanation]
 COMPLEXITY: [low/medium/high]
 FIX CONFIDENCE: [1-100]
-CLASSIFICATION: [STRIKE/ASSIST/COMMAND]
+CLASSIFICATION: [AUTO_FIX/NEEDS_REVIEW/ESCALATE]
 RELATED ISSUES: [list issue numbers or "none"]
 SUMMARY: [2-3 sentence summary]
 RECOMMENDED FIX: [description of how to fix]

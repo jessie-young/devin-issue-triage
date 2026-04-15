@@ -135,9 +135,9 @@ class InvestigationStore:
                 "queued": queued,
                 "total": len(self._investigations),
                 "resolved_today": resolved_today,
-                "strike_count": len([inv for inv in self._investigations.values() if inv.classification == InvestigationClassification.STRIKE]),
-                "assist_count": len([inv for inv in self._investigations.values() if inv.classification == InvestigationClassification.ASSIST]),
-                "command_count": len([inv for inv in self._investigations.values() if inv.classification == InvestigationClassification.COMMAND]),
+                "auto_fix_count": len([inv for inv in self._investigations.values() if inv.classification == InvestigationClassification.AUTO_FIX]),
+                "needs_review_count": len([inv for inv in self._investigations.values() if inv.classification == InvestigationClassification.NEEDS_REVIEW]),
+                "escalate_count": len([inv for inv in self._investigations.values() if inv.classification == InvestigationClassification.ESCALATE]),
             },
             uptime_start=self._uptime_start,
         )
