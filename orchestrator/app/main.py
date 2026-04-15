@@ -75,7 +75,9 @@ async def _auto_seed():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan — runs auto-seed on startup."""
+    """Application lifespan — loads playbooks and runs auto-seed on startup."""
+    from app.services.playbook_router import playbook_router
+    await playbook_router.load_playbooks()
     await _auto_seed()
     yield
 
