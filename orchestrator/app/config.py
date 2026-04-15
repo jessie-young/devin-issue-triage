@@ -1,4 +1,4 @@
-"""Configuration for the Mission Control Orchestrator."""
+"""Configuration for the Devin Issue Triage Orchestrator."""
 
 from pydantic_settings import BaseSettings
 
@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     max_poll_duration_seconds: int = 3600
 
     # App
-    app_title: str = "Mission Control Orchestrator"
+    app_title: str = "Devin Issue Triage Orchestrator"
     debug: bool = False
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}

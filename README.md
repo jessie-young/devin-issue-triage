@@ -1,13 +1,13 @@
-# Mission Control
+# Devin Issue Triage
 
-A NASA Mission Control-themed automation system that watches a GitHub repo for new issues, automatically dispatches Devin to investigate each one, displays real-time investigation telemetry on a dashboard, and lets an engineering lead click "GO FOR LAUNCH" to have Devin autonomously fix bugs and open PRs.
+An automated issue investigation and resolution system that watches a GitHub repo for new issues, dispatches Devin to investigate each one, displays real-time progress on a dashboard, and lets an engineering lead approve fixes that Devin implements and opens as PRs.
 
 ## Architecture
 
 ```
-mission-control/
+devin-issue-triage/
   orchestrator/   # Python/FastAPI backend — webhook receiver, Devin API client, SSE streaming
-  dashboard/      # React/Vite frontend — NASA-themed Mission Control UI
+  dashboard/      # React/Vite frontend — professional issue triage dashboard
 ```
 
 ## Orchestrator (Python/FastAPI)
@@ -18,29 +18,29 @@ The orchestrator connects GitHub webhooks to the Devin API and streams real-time
 - **Webhook Receiver** — Listens for GitHub `issues` events
 - **Devin API Client** — Creates investigation and fix sessions
 - **Session Poller** — Polls active Devin sessions for progress telemetry
-- **Mission Classifier** — Routes missions as STRIKE / ASSIST / COMMAND
+- **Issue Classifier** — Routes issues as Auto-fix / Needs Review / Escalate
 - **GitHub Commenter** — Posts investigation reports back to issues
-- **Launch Handler** — Creates fix sessions when user clicks GO FOR LAUNCH
+- **Fix Handler** — Creates fix sessions when user clicks Apply Fix
 - **SSE Endpoint** — Streams real-time telemetry to the dashboard
 
 ### Setup
 ```bash
 cd orchestrator
 poetry install
-cp .env.example .env  # Fill in DEVIN_API_TOKEN and GITHUB_TOKEN
+cp .env.example .env  # Fill in DEVIN_API_KEY, DEVIN_ORG_ID, and GITHUB_TOKEN
 poetry run uvicorn app.main:app --host 0.0.0.0 --port 8001
 ```
 
 ## Dashboard (React/Vite)
 
-A NASA Mission Control-themed React app showing real-time investigation telemetry.
+A clean, professional dashboard showing real-time investigation progress.
 
 ### Features
-- Dark navy/charcoal background with glowing teal/cyan active elements
-- Three-column layout: Mission Queue, Active Missions, Completed Missions
-- Animated telemetry timeline showing investigation steps
-- GO FOR LAUNCH button for auto-fixable (STRIKE) missions
-- Scrolling telemetry strip with raw event log
+- Three-column layout: Queue, In Progress, Resolved
+- Step-by-step investigation timeline with real-time updates
+- Apply Fix button for auto-fixable issues
+- Metrics panel with charts (classification, module distribution, resolved over time, backlog)
+- Activity log with timestamped events
 - SSE connection with auto-reconnect
 
 ### Setup
@@ -51,13 +51,13 @@ cp .env.example .env  # Set VITE_API_URL to orchestrator URL
 npm run dev
 ```
 
-## Mission Classifications
+## Issue Classifications
 
 | Classification | Meaning | Action |
 |---|---|---|
-| **STRIKE** | Auto-fixable with high confidence | GO FOR LAUNCH available |
-| **ASSIST** | Needs human guidance | Briefing posted to issue |
-| **COMMAND** | Requires senior/architectural decision | Routed to team lead |
+| **Auto-fix** | High confidence, auto-fixable | Apply Fix available |
+| **Needs Review** | Needs human guidance | Briefing posted to issue |
+| **Escalate** | Requires senior/architectural decision | Routed to team lead |
 
 ## Demo Target Repo
 

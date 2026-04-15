@@ -1,4 +1,4 @@
-"""Mission Control Orchestrator — FastAPI application."""
+"""Devin Issue Triage Orchestrator — FastAPI application."""
 
 import asyncio
 import logging
@@ -80,7 +80,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Mission Control Orchestrator", lifespan=lifespan)
+app = FastAPI(title="Devin Issue Triage Orchestrator", lifespan=lifespan)
 
 # Disable CORS. Do not remove this for full-stack development.
 app.add_middleware(
@@ -97,4 +97,4 @@ app.include_router(webhooks_router)
 
 @app.get("/healthz")
 async def healthz():
-    return {"status": "ok", "service": "mission-control-orchestrator"}
+    return {"status": "ok", "service": "devin-issue-triage-orchestrator"}
