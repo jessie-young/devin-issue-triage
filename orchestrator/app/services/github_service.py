@@ -12,7 +12,7 @@ from app.models.mission import InvestigationReport, MissionClassification
 
 logger = logging.getLogger(__name__)
 
-COMMENT_TEMPLATE = """## Mission Control Investigation Report
+COMMENT_TEMPLATE = """## Investigation Report
 
 **Mission ID:** {mission_id}
 **Classification:** {classification_badge}
@@ -45,7 +45,7 @@ COMMENT_TEMPLATE = """## Mission Control Investigation Report
 
 {classification_note}
 
-> _This investigation was performed automatically by [Mission Control](https://github.com/jessie-young/demo-finserv-repo) via Devin AI._
+> _This investigation was performed automatically by [Devin Issue Triage](https://github.com/jessie-young/demo-finserv-repo) via Devin AI._
 """
 
 
@@ -63,7 +63,7 @@ def _classification_note(classification: MissionClassification | None) -> str:
     if classification == MissionClassification.STRIKE:
         return (
             "**Next step:** This issue has been classified as auto-fixable. "
-            "Click **GO FOR LAUNCH** on the Mission Control dashboard to have Devin implement the fix and open a PR."
+            "Click **Apply Fix** on the Issue Triage dashboard to have Devin implement the fix and open a PR."
         )
     elif classification == MissionClassification.ASSIST:
         return (

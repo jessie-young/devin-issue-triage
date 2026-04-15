@@ -1,7 +1,10 @@
 """Setup scripts for creating Devin playbooks, knowledge notes, and schedules.
 
-Run these scripts to configure Devin for the Mission Control workflow.
-Requires DEVIN_API_TOKEN environment variable.
+Run these scripts to configure Devin for the Issue Triage workflow.
+Requires DEVIN_API_KEY and DEVIN_ORG_ID environment variables.
+
+Usage:
+    DEVIN_API_KEY=cog_xxx DEVIN_ORG_ID=org-xxx python -m app.scripts.setup_devin
 """
 
 from __future__ import annotations
@@ -12,16 +15,22 @@ import sys
 
 import httpx
 
-DEVIN_API_BASE = os.environ.get("DEVIN_API_BASE_URL", "https://api.devin.ai/v1")
-DEVIN_TOKEN = os.environ.get("DEVIN_API_TOKEN", "")
+DEVIN_API_BASE = os.environ.get("DEVIN_API_BASE_URL", "https://api.devin.ai/v3")
+DEVIN_API_KEY = os.environ.get("DEVIN_API_KEY", "")
+DEVIN_ORG_ID = os.environ.get("DEVIN_ORG_ID", "")
 TARGET_REPO = os.environ.get("TARGET_REPO", "jessie-young/demo-finserv-repo")
 
 
 def _headers() -> dict[str, str]:
     return {
-        "Authorization": f"Bearer {DEVIN_TOKEN}",
+        "Authorization": f"Bearer {DEVIN_API_KEY}",
         "Content-Type": "application/json",
     }
+
+
+def _org_url(path: str) -> str:
+    """Build organization-scoped API URL."""
+    return f"{DEVIN_API_BASE}/organizations/{DEVIN_ORG_ID}{path}"
 
 
 INVESTIGATION_PLAYBOOK = {
@@ -189,7 +198,7 @@ def create_playbook(playbook_data: dict) -> None:
     print(f"Creating playbook: {playbook_data['name']}...")
     try:
         resp = httpx.post(
-            f"{DEVIN_API_BASE}/playbooks",
+            _org_url("/playbooks"),
             headers=_headers(),
             json=playbook_data,
             timeout=30,
@@ -206,7 +215,7 @@ def create_knowledge_note(note_data: dict) -> None:
     print(f"Creating knowledge note: {note_data['name']}...")
     try:
         resp = httpx.post(
-            f"{DEVIN_API_BASE}/knowledge",
+            _org_url("/knowledge"),
             headers=_headers(),
             json=note_data,
             timeout=30,
@@ -231,7 +240,7 @@ def create_scheduled_session() -> None:
     }
     try:
         resp = httpx.post(
-            f"{DEVIN_API_BASE}/schedules",
+            _org_url("/schedules"),
             headers=_headers(),
             json=schedule_data,
             timeout=30,
@@ -244,12 +253,18 @@ def create_scheduled_session() -> None:
 
 
 def main():
-    if not DEVIN_TOKEN:
-        print("ERROR: DEVIN_API_TOKEN environment variable not set")
+    if not DEVIN_API_KEY:
+        print("ERROR: DEVIN_API_KEY environment variable not set")
+        print("  Create a service user at https://app.devin.ai/settings")
+        sys.exit(1)
+    if not DEVIN_ORG_ID:
+        print("ERROR: DEVIN_ORG_ID environment variable not set")
+        print("  Find your org ID at https://app.devin.ai/settings → Service Users")
         sys.exit(1)
 
     print(f"Setting up Devin for {TARGET_REPO}...")
     print(f"API Base: {DEVIN_API_BASE}")
+    print(f"Org ID: {DEVIN_ORG_ID}")
     print()
 
     create_playbook(INVESTIGATION_PLAYBOOK)

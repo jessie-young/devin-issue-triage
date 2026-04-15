@@ -1,10 +1,11 @@
-import { useMemo } from 'react';
-import { Inbox, Radar, CheckCircle2 } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Inbox, Search, CheckCircle2 } from 'lucide-react';
 import { useMissionControl } from './hooks/useMissionControl';
 import { HeaderBar } from './components/HeaderBar';
 import { MissionColumn } from './components/MissionColumn';
 import { TelemetryStrip } from './components/TelemetryStrip';
 import { FileMissionInput } from './components/FileMissionInput';
+import { MetricsPanel } from './components/MetricsPanel';
 import type { Mission } from './types/mission';
 
 function App() {
@@ -18,6 +19,7 @@ function App() {
     fileMission,
   } = useMissionControl();
 
+  const [showMetrics, setShowMetrics] = useState(false);
   const missionList = useMemo(() => Object.values(missions), [missions]);
 
   const queued = useMemo(
@@ -40,83 +42,91 @@ function App() {
   );
 
   return (
-    <div className="h-screen flex flex-col bg-nasa-navy text-nasa-text overflow-hidden">
-      {/* Blueprint grid background */}
-      <div className="fixed inset-0 pointer-events-none opacity-5"
-        style={{
-          backgroundImage: `
-            linear-gradient(rgba(6, 182, 212, 0.3) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(6, 182, 212, 0.3) 1px, transparent 1px)
-          `,
-          backgroundSize: '40px 40px',
-        }}
-      />
-
+    <div className="h-screen flex flex-col bg-app-bg text-app-text overflow-hidden">
       {/* Header */}
       <HeaderBar
         active={stats.active}
         completed={stats.completed}
         queued={stats.queued}
         total={stats.total}
+        resolvedToday={stats.resolved_today}
         uptimeStart={uptimeStart}
         connected={connected}
       />
 
-      {/* Manual file mission input bar */}
-      <div className="flex items-center justify-between px-6 py-2 border-b border-nasa-border/30 bg-nasa-dark/40">
+      {/* Classification summary & actions bar */}
+      <div className="flex items-center justify-between px-6 py-2 border-b border-app-border bg-white">
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3 text-xs font-mono">
-            <span className="text-nasa-green">
-              STRIKE <span className="font-bold">{stats.strike_count}</span>
+          <div className="flex items-center gap-3 text-xs font-medium">
+            <span className="flex items-center gap-1.5 text-app-success">
+              <span className="w-2 h-2 rounded-full bg-app-success" />
+              Auto-fix <span className="font-semibold">{stats.strike_count}</span>
             </span>
-            <span className="text-nasa-amber">
-              ASSIST <span className="font-bold">{stats.assist_count}</span>
+            <span className="flex items-center gap-1.5 text-app-warning">
+              <span className="w-2 h-2 rounded-full bg-app-warning" />
+              Needs Review <span className="font-semibold">{stats.assist_count}</span>
             </span>
-            <span className="text-nasa-red">
-              COMMAND <span className="font-bold">{stats.command_count}</span>
+            <span className="flex items-center gap-1.5 text-app-danger">
+              <span className="w-2 h-2 rounded-full bg-app-danger" />
+              Escalate <span className="font-semibold">{stats.command_count}</span>
             </span>
           </div>
         </div>
-        <FileMissionInput onFile={fileMission} />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowMetrics(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-app-border
+              bg-white hover:bg-app-panel text-xs font-medium text-app-text-secondary
+              hover:text-app-text transition-all shadow-sm"
+          >
+            Metrics
+          </button>
+          <FileMissionInput onFile={fileMission} />
+        </div>
       </div>
 
       {/* Three-column layout */}
-      <div className="flex-1 grid grid-cols-4 divide-x divide-nasa-border/30 min-h-0 relative z-10">
-        {/* Left: Mission Queue */}
+      <div className="flex-1 grid grid-cols-4 divide-x divide-app-border min-h-0">
+        {/* Left: Queue */}
         <MissionColumn
-          title="Mission Queue"
+          title="Queue"
           missions={queued}
-          icon={<Inbox className="w-4 h-4 text-nasa-cyan" />}
-          accentColor="text-nasa-cyan"
+          icon={<Inbox className="w-4 h-4 text-app-primary" />}
+          accentColor="text-app-text-secondary"
           compact
-          emptyText="No missions queued"
+          emptyText="No issues queued"
         />
 
-        {/* Center: Active Missions (wider) */}
+        {/* Center: In Progress (wider) */}
         <div className="col-span-2">
           <MissionColumn
-            title="Active Missions"
+            title="In Progress"
             missions={active}
-            icon={<Radar className="w-4 h-4 text-nasa-amber" />}
-            accentColor="text-nasa-amber"
+            icon={<Search className="w-4 h-4 text-app-warning" />}
+            accentColor="text-app-text-secondary"
             onLaunch={launchFix}
             emptyText="No active investigations"
           />
         </div>
 
-        {/* Right: Completed Missions */}
+        {/* Right: Resolved */}
         <MissionColumn
-          title="Completed"
+          title="Resolved"
           missions={completed}
-          icon={<CheckCircle2 className="w-4 h-4 text-nasa-green" />}
-          accentColor="text-nasa-green"
+          icon={<CheckCircle2 className="w-4 h-4 text-app-success" />}
+          accentColor="text-app-text-secondary"
           compact
-          emptyText="No completed missions"
+          emptyText="No resolved issues"
         />
       </div>
 
-      {/* Telemetry Strip */}
+      {/* Activity Log */}
       <TelemetryStrip entries={telemetryLog} />
+
+      {/* Metrics Modal */}
+      {showMetrics && (
+        <MetricsPanel missions={missionList} onClose={() => setShowMetrics(false)} />
+      )}
     </div>
   );
 }
