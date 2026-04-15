@@ -29,7 +29,7 @@ TELEMETRY_KEYWORDS = {
     "files": ["found file", "relevant file", "identified", "located", "src/"],
     "git": ["git log", "git blame", "commit", "authored by", "history"],
     "root_cause": ["root cause", "the issue is", "the bug is", "problem is", "because"],
-    "classify": ["confidence", "classification", "STRIKE", "ASSIST", "COMMAND", "complexity"],
+    "classify": ["confidence", "classification", "AUTO_FIX", "NEEDS_REVIEW", "ESCALATE", "complexity"],
 }
 
 FIX_TELEMETRY_KEYWORDS = {
@@ -81,10 +81,16 @@ def _parse_investigation_report(messages: list[dict]) -> Optional[InvestigationR
     if fc_match:
         report.fix_confidence = min(100, max(0, int(fc_match.group(1))))
 
-    # Extract classification
-    cl_match = re.search(r"CLASSIFICATION[:\s]*(STRIKE|ASSIST|COMMAND)", full_text, re.IGNORECASE)
+    # Extract classification (with backward-compat mapping for old names)
+    _CLASSIFICATION_ALIASES = {
+        "STRIKE": "AUTO_FIX",
+        "ASSIST": "NEEDS_REVIEW",
+        "COMMAND": "ESCALATE",
+    }
+    cl_match = re.search(r"CLASSIFICATION[:\s]*(AUTO_FIX|NEEDS_REVIEW|ESCALATE|STRIKE|ASSIST|COMMAND)", full_text, re.IGNORECASE)
     if cl_match:
         classification_str = cl_match.group(1).upper()
+        classification_str = _CLASSIFICATION_ALIASES.get(classification_str, classification_str)
         try:
             report.classification = InvestigationClassification(classification_str)
         except ValueError:
@@ -109,11 +115,11 @@ def _parse_investigation_report(messages: list[dict]) -> Optional[InvestigationR
     # Auto-classify if not explicitly classified
     if not report.classification:
         if report.fix_confidence >= 80:
-            report.classification = InvestigationClassification.STRIKE
+            report.classification = InvestigationClassification.AUTO_FIX
         elif report.fix_confidence >= 50:
-            report.classification = InvestigationClassification.ASSIST
+            report.classification = InvestigationClassification.NEEDS_REVIEW
         else:
-            report.classification = InvestigationClassification.COMMAND
+            report.classification = InvestigationClassification.ESCALATE
 
     return report
 

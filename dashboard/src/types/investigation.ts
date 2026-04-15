@@ -9,7 +9,7 @@ export type InvestigationStatus =
   | 'CLOSED'
   | 'FAILED';
 
-export type InvestigationClassification = 'STRIKE' | 'ASSIST' | 'COMMAND';
+export type InvestigationClassification = 'AUTO_FIX' | 'NEEDS_REVIEW' | 'ESCALATE';
 
 export interface TelemetryStep {
   id: string;
@@ -65,9 +65,9 @@ export interface DashboardStats {
   queued: number;
   total: number;
   resolved_today: number;
-  strike_count: number;
-  assist_count: number;
-  command_count: number;
+  auto_fix_count: number;
+  needs_review_count: number;
+  escalate_count: number;
 }
 
 export interface DashboardState {

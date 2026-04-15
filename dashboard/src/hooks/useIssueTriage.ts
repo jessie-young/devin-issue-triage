@@ -7,7 +7,7 @@ export function useIssueTriage() {
   const [investigations, setInvestigations] = useState<Record<string, Investigation>>({});
   const [stats, setStats] = useState({
     active: 0, completed: 0, queued: 0, total: 0, resolved_today: 0,
-    strike_count: 0, assist_count: 0, command_count: 0,
+    auto_fix_count: 0, needs_review_count: 0, escalate_count: 0,
   });
   const [uptimeStart, setUptimeStart] = useState<number>(Date.now() / 1000);
   const [telemetryLog, setTelemetryLog] = useState<TelemetryLogEntry[]>([]);
@@ -41,9 +41,9 @@ export function useIssueTriage() {
         ['RESOLVED', 'ROUTED', 'CLOSED'].includes(m.status) &&
         m.completed_at != null && m.completed_at >= todayStartSec
       ).length,
-      strike_count: all.filter(m => m.classification === 'STRIKE').length,
-      assist_count: all.filter(m => m.classification === 'ASSIST').length,
-      command_count: all.filter(m => m.classification === 'COMMAND').length,
+      auto_fix_count: all.filter(m => m.classification === 'AUTO_FIX').length,
+      needs_review_count: all.filter(m => m.classification === 'NEEDS_REVIEW').length,
+      escalate_count: all.filter(m => m.classification === 'ESCALATE').length,
     });
   }, []);
 

@@ -50,27 +50,27 @@ COMMENT_TEMPLATE = """## Investigation Report
 
 
 def _classification_badge(classification: InvestigationClassification | None) -> str:
-    if classification == InvestigationClassification.STRIKE:
-        return "STRIKE — Auto-fixable"
-    elif classification == InvestigationClassification.ASSIST:
-        return "ASSIST — Human review needed"
-    elif classification == InvestigationClassification.COMMAND:
-        return "COMMAND — Senior decision required"
+    if classification == InvestigationClassification.AUTO_FIX:
+        return "Auto-fix — Fixable automatically"
+    elif classification == InvestigationClassification.NEEDS_REVIEW:
+        return "Needs Review — Human review needed"
+    elif classification == InvestigationClassification.ESCALATE:
+        return "Escalate — Senior decision required"
     return "UNKNOWN"
 
 
 def _classification_note(classification: InvestigationClassification | None) -> str:
-    if classification == InvestigationClassification.STRIKE:
+    if classification == InvestigationClassification.AUTO_FIX:
         return (
             "**Next step:** This issue has been classified as auto-fixable. "
             "Click **Apply Fix** on the Issue Triage dashboard to have Devin implement the fix and open a PR."
         )
-    elif classification == InvestigationClassification.ASSIST:
+    elif classification == InvestigationClassification.NEEDS_REVIEW:
         return (
             "**Next step:** This issue needs human review of the investigation findings before proceeding. "
             "Please review the root cause analysis and recommended fix, then decide whether to proceed with the automated fix."
         )
-    elif classification == InvestigationClassification.COMMAND:
+    elif classification == InvestigationClassification.ESCALATE:
         return (
             "**Next step:** This issue requires a senior engineering decision. "
             "The automated investigation has identified the problem but the fix involves architectural trade-offs "

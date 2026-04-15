@@ -56,7 +56,7 @@ This document identifies every component that has simulation, mock, or hardcoded
 
 **Classification: SIMULATION**
 
-- **What it does now:** In simulation mode, the `pr_url` on completed STRIKE investigations is set to the GitHub issue URL (e.g., `https://github.com/.../issues/5`). No real PR is created. The "View Pull Request" link on the dashboard points to the issue page.
+- **What it does now:** In simulation mode, the `pr_url` on completed AUTO_FIX investigations is set to the GitHub issue URL (e.g., `https://github.com/.../issues/5`). No real PR is created. The "View Pull Request" link on the dashboard points to the issue page.
 - **What needs to change:** When Devin API is connected and a fix session runs, Devin will create a real PR on the repo. The session poller extracts the PR URL from Devin's messages and sets it on the investigation.
 - **What's needed:** Devin API credentials + the target repo must be connected to Devin's GitHub integration.
 
@@ -80,7 +80,7 @@ This document identifies every component that has simulation, mock, or hardcoded
 
 **Classification: SIMULATION**
 
-- **What it does now:** On startup, `main.py` calls `/investigations/ingest-all` to fetch all open GitHub issues via the real GitHub API, then calls `/investigations/simulate/{id}` for each to populate them with hardcoded investigation results from `_get_simulation_data()`. ASSIST/COMMAND investigations are routed to the Completed column. This gives the dashboard a rich initial state.
+- **What it does now:** On startup, `main.py` calls `/investigations/ingest-all` to fetch all open GitHub issues via the real GitHub API, then calls `/investigations/simulate/{id}` for each to populate them with hardcoded investigation results from `_get_simulation_data()`. NEEDS_REVIEW/ESCALATE investigations are routed to the Completed column. This gives the dashboard a rich initial state.
 - **What needs to change:** For a live demo, you would run real Devin investigations against all issues before the demo (by temporarily enabling the Devin API and triggering investigations). The auto-seed logic would be disabled or replaced.
 - **What's needed:** Run investigations ahead of time, or keep simulation for demo purposes.
 
@@ -187,7 +187,7 @@ Before the demo, trigger real investigations for all 19 existing issues:
 1. Open the dashboard — it shows pre-seeded completed investigations
 2. File a new GitHub issue on `demo-finserv-repo`
 3. The webhook triggers a real Devin investigation → dashboard shows live telemetry
-4. When investigation completes, click "Apply Fix" on a STRIKE investigation
+4. When investigation completes, click "Apply Fix" on an AUTO_FIX investigation
 5. Devin creates a real PR → "View Pull Request" links to the actual PR
 
 ### Optional: Machine Snapshots

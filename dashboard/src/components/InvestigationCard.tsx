@@ -10,9 +10,9 @@ interface InvestigationCardProps {
 function classificationBadge(c: InvestigationClassification | null) {
   if (!c) return null;
   const config: Record<string, { label: string; style: string }> = {
-    STRIKE: { label: 'Auto-fix', style: 'bg-app-success-light text-app-success' },
-    ASSIST: { label: 'Needs Review', style: 'bg-app-warning-light text-app-warning' },
-    COMMAND: { label: 'Escalate', style: 'bg-app-danger-light text-app-danger' },
+    AUTO_FIX: { label: 'Auto-fix', style: 'bg-app-success-light text-app-success' },
+    NEEDS_REVIEW: { label: 'Needs Review', style: 'bg-app-warning-light text-app-warning' },
+    ESCALATE: { label: 'Escalate', style: 'bg-app-danger-light text-app-danger' },
   };
   const { label, style } = config[c] || { label: c, style: 'bg-app-panel text-app-text-muted' };
   return (
@@ -94,10 +94,10 @@ function ElapsedTimer({ startedAt, completedAt }: { startedAt: number | null; co
 
 export function InvestigationCard({ investigation, onLaunch, compact }: InvestigationCardProps) {
   const isActive = ['INVESTIGATING', 'FIX_IN_PROGRESS', 'LAUNCHING'].includes(investigation.status);
-  const isStrikeReady = investigation.status === 'INVESTIGATION_COMPLETE' && investigation.classification === 'STRIKE';
+  const isAutoFixReady = investigation.status === 'INVESTIGATION_COMPLETE' && investigation.classification === 'AUTO_FIX';
 
   const borderStyle = isActive ? 'border-app-primary/30 shadow-sm shadow-app-primary/5' :
-    isStrikeReady ? 'border-app-success/40 shadow-sm' :
+    isAutoFixReady ? 'border-app-success/40 shadow-sm' :
     investigation.status === 'RESOLVED' ? 'border-app-success/20' :
     investigation.status === 'FAILED' ? 'border-app-danger/20' :
     'border-app-border';
@@ -167,7 +167,7 @@ export function InvestigationCard({ investigation, onLaunch, compact }: Investig
       )}
 
       {/* Apply Fix button */}
-      {isStrikeReady && onLaunch && (
+      {isAutoFixReady && onLaunch && (
         <button
           onClick={() => onLaunch(investigation.id)}
           className="mt-4 w-full py-2.5 rounded-lg text-sm font-semibold

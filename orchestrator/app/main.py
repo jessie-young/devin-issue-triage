@@ -60,14 +60,14 @@ async def _auto_seed():
 
         logger.info(f"Auto-seed: simulated {simulated}/{created} investigations")
 
-        # Route ASSIST/COMMAND investigations to Completed column for demo
+        # Route NEEDS_REVIEW/ESCALATE investigations to Completed column for demo
         from app.models.investigation import InvestigationClassification, InvestigationStatus
         routed = 0
         for inv in investigation_store.get_all_investigations():
-            if inv.classification in (InvestigationClassification.ASSIST, InvestigationClassification.COMMAND):
+            if inv.classification in (InvestigationClassification.NEEDS_REVIEW, InvestigationClassification.ESCALATE):
                 await investigation_store.update_investigation(inv.id, status=InvestigationStatus.ROUTED)
                 routed += 1
-        logger.info(f"Auto-seed: routed {routed} ASSIST/COMMAND investigations to completed")
+        logger.info(f"Auto-seed: routed {routed} NEEDS_REVIEW/ESCALATE investigations to completed")
 
     except Exception as e:
         logger.error(f"Auto-seed failed: {e}")

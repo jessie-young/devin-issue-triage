@@ -22,9 +22,9 @@ class InvestigationStatus(str, Enum):
 
 
 class InvestigationClassification(str, Enum):
-    STRIKE = "STRIKE"      # Auto-fixable, high confidence
-    ASSIST = "ASSIST"      # Human needed with Devin briefing
-    COMMAND = "COMMAND"     # Senior decision required
+    AUTO_FIX = "AUTO_FIX"          # Auto-fixable, high confidence
+    NEEDS_REVIEW = "NEEDS_REVIEW"  # Human review needed
+    ESCALATE = "ESCALATE"          # Senior decision required
 
 
 class TelemetryStep(BaseModel):
@@ -94,7 +94,7 @@ class Investigation(BaseModel):
 
 class SSEEvent(BaseModel):
     """An event sent to the dashboard via SSE."""
-    event_type: str  # investigation_created, telemetry_update, investigation_complete, mission_complete, etc.
+    event_type: str  # investigation_created, telemetry_update, investigation_complete, investigation_resolved, etc.
     investigation_id: str
     data: dict = Field(default_factory=dict)
     timestamp: float = Field(default_factory=time.time)

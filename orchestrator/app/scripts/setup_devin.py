@@ -35,7 +35,7 @@ def _org_url(path: str) -> str:
 
 INVESTIGATION_PLAYBOOK = {
     "name": "FinServ Bug Investigation Protocol",
-    "description": "Structured investigation protocol for FinServ Platform issues. Devin follows this playbook to scan the codebase, trace git history, identify root cause, assess complexity, and classify the investigation as STRIKE/ASSIST/COMMAND.",
+    "description": "Structured investigation protocol for FinServ Platform issues. Devin follows this playbook to scan the codebase, trace git history, identify root cause, assess complexity, and classify the investigation as AUTO_FIX/NEEDS_REVIEW/ESCALATE.",
     "content": """# FinServ Bug Investigation Protocol
 
 ## Objective
@@ -82,9 +82,9 @@ Rate as low / medium / high:
 - Below 50: Needs human input
 
 ### 8. Classification
-- **STRIKE** (confidence >= 80, low/medium complexity): Auto-fixable
-- **ASSIST** (confidence 50-79 or medium with trade-offs): Human review needed
-- **COMMAND** (confidence < 50 or high complexity): Senior decision required
+- **AUTO_FIX** (confidence >= 80, low/medium complexity): Auto-fixable
+- **NEEDS_REVIEW** (confidence 50-79 or medium with trade-offs): Human review needed
+- **ESCALATE** (confidence < 50 or high complexity): Senior decision required
 
 ### 9. Related Issues
 - Check for other open issues that might share the same root cause
@@ -98,7 +98,7 @@ GIT HISTORY: [relevant commits]
 ROOT CAUSE: [detailed explanation]
 COMPLEXITY: [low/medium/high]
 FIX CONFIDENCE: [1-100]
-CLASSIFICATION: [STRIKE/ASSIST/COMMAND]
+CLASSIFICATION: [AUTO_FIX/NEEDS_REVIEW/ESCALATE]
 RELATED ISSUES: [issue numbers or "none"]
 SUMMARY: [2-3 sentences]
 RECOMMENDED FIX: [description]
