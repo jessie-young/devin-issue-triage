@@ -47,12 +47,12 @@ async def _auto_seed():
 
         logger.info(f"Auto-seed: ingested {created} issues")
 
-        # Simulate investigations for all missions
+        # Simulate investigations for all missions (skip GitHub comment posting on startup)
         all_missions = mission_store.get_all_missions()
         simulated = 0
         for m in all_missions:
             try:
-                await simulate_investigation(m.id)
+                await simulate_investigation(m.id, post_comment=False)
                 simulated += 1
             except Exception as e:
                 logger.warning(f"Auto-seed: failed to simulate {m.id}: {e}")

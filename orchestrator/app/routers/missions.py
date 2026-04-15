@@ -250,12 +250,17 @@ async def ingest_all_issues():
 
 
 @router.post("/simulate/{mission_id}")
-async def simulate_investigation(mission_id: str):
+async def simulate_investigation(mission_id: str, *, post_comment: bool = True):
     """Simulate an investigation completing (for demo/testing without Devin API).
     
     This populates a mission with realistic investigation data so the
     dashboard can be demonstrated without needing actual Devin sessions.
+    
+    Args:
+        post_comment: Whether to post the investigation comment to GitHub.
+            Set to False during auto-seed to avoid spamming issue comments on every restart.
     """
+    import asyncio
     import random
 
     mission = mission_store.get_mission(mission_id)
@@ -271,7 +276,6 @@ async def simulate_investigation(mission_id: str):
         await mission_store.update_telemetry_step(
             mission_id, step.id, "completed", f"Simulated: {step.label}"
         )
-        import asyncio
         await asyncio.sleep(0.1)
 
     report = sim["report"]
@@ -287,15 +291,16 @@ async def simulate_investigation(mission_id: str):
         elapsed_seconds=random.uniform(120, 480),
     )
 
-    # Post investigation comment to GitHub issue
-    try:
-        await github_service.post_investigation_comment(
-            issue_number=mission.issue_number,
-            mission_id=mission_id,
-            report=report,
-        )
-    except Exception as e:
-        logger.warning(f"Failed to post investigation comment for {mission_id}: {e}")
+    # Post investigation comment to GitHub issue (skip during auto-seed)
+    if post_comment:
+        try:
+            await github_service.post_investigation_comment(
+                issue_number=mission.issue_number,
+                mission_id=mission_id,
+                report=report,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to post investigation comment for {mission_id}: {e}")
 
     return {"status": "simulated", "classification": classification.value if classification else "UNKNOWN"}
 

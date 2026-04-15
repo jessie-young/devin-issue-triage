@@ -98,18 +98,14 @@ async def github_webhook(
 
     except Exception as e:
         logger.warning(f"Devin API unavailable, falling back to simulated investigation: {e}")
-        # Fall back to simulation: run the simulate endpoint logic inline
+        # Fall back to simulation
         import asyncio as _asyncio
         from app.routers.missions import simulate_investigation as _sim_fn
 
         async def _simulate_webhook_investigation():
             try:
                 await _asyncio.sleep(1)
-                # Use the missions router simulation logic
-                import httpx
-                # Call our own simulate endpoint
-                async with httpx.AsyncClient(base_url="http://127.0.0.1:8001", timeout=30) as client:
-                    await client.post(f"/missions/simulate/{mission.id}")
+                await _sim_fn(mission.id)
             except Exception as exc:
                 logger.error(f"Simulated investigation failed for {mission.id}: {exc}")
 
