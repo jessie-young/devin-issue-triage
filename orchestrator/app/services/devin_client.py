@@ -11,7 +11,9 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-INVESTIGATION_PROMPT_TEMPLATE = """You are investigating a bug report from the FinServ Platform repository ({repo}).
+INVESTIGATION_PROMPT_TEMPLATE = """You are investigating a GitHub issue in the repository {repo}.
+
+## Issue Type: {issue_type}
 
 ## GitHub Issue #{issue_number}: {issue_title}
 
@@ -27,35 +29,37 @@ Follow this structured investigation process and report findings at each step:
 Search the codebase for files related to this issue. Look at relevant modules, services, controllers, and utilities.
 
 ### Step 2: Identify Relevant Files
-List the specific files that are relevant to this bug. Include file paths.
+List the specific files that are relevant to this issue. Include file paths.
 
 ### Step 3: Git History
-Run `git log` and `git blame` on the relevant files. Identify which commits introduced the problematic code, who authored them, and when.
+Run `git log` and `git blame` on the relevant files. Identify which commits introduced the relevant code, who authored them, and when.
 
-### Step 4: Root Cause Analysis
-Determine the root cause of the bug. Be specific about the exact line(s) of code causing the issue and explain the mechanism.
+### Step 4: Root Cause / Feasibility Analysis
+For bugs: determine the root cause — be specific about the exact line(s) of code and the mechanism.
+For features: assess feasibility, identify which files/modules would need changes, and estimate scope.
+For docs/refactoring: identify what needs updating and the scope of changes.
 
 ### Step 5: Complexity Assessment
 Rate the complexity: low / medium / high. Consider:
 - How many files need to change?
-- Could the fix introduce regressions?
-- Does it require architectural changes?
+- Could the changes introduce regressions?
+- Does it require architectural decisions?
 
 ### Step 6: Fix Confidence Score
-Rate your confidence in being able to fix this autonomously: 1-100
-- 90-100: Simple, clear fix with no ambiguity
-- 70-89: Straightforward fix, minor decisions needed
-- 50-69: Fix is possible but involves trade-offs
+Rate your confidence in being able to resolve this autonomously: 1-100
+- 90-100: Simple, clear path with no ambiguity
+- 70-89: Straightforward, minor decisions needed
+- 50-69: Possible but involves trade-offs
 - Below 50: Needs human input on approach
 
 ### Step 7: Classification
 Based on your analysis, classify this investigation:
-- **AUTO_FIX**: Fix confidence >= 80, low/medium complexity, clear fix path. You can fix this autonomously.
-- **NEEDS_REVIEW**: Fix confidence 50-79, or medium complexity with trade-offs. Human should review your briefing before proceeding.
-- **ESCALATE**: Fix confidence < 50, high complexity, or requires architectural decisions. Needs senior engineer decision.
+- **AUTO_FIX**: Confidence >= 80, low/medium complexity, clear path. You can resolve this autonomously.
+- **NEEDS_REVIEW**: Confidence 50-79, or medium complexity with trade-offs. Human should review before proceeding.
+- **ESCALATE**: Confidence < 50, high complexity, or requires architectural decisions. Needs senior engineer decision.
 
 ### Step 8: Related Issues
-Check if other open issues might be related to the same root cause.
+Check if other open issues might be related.
 
 ---
 
@@ -65,6 +69,7 @@ Please structure your final output as a report with these sections:
 ```
 INVESTIGATION REPORT
 ====================
+ISSUE TYPE: {issue_type}
 RELEVANT FILES: [list file paths]
 GIT HISTORY: [list relevant commits with authors and dates]
 ROOT CAUSE: [detailed explanation]
@@ -73,11 +78,11 @@ FIX CONFIDENCE: [1-100]
 CLASSIFICATION: [AUTO_FIX/NEEDS_REVIEW/ESCALATE]
 RELATED ISSUES: [list issue numbers or "none"]
 SUMMARY: [2-3 sentence summary]
-RECOMMENDED FIX: [description of how to fix]
+RECOMMENDED FIX: [description of how to resolve]
 ```
 """
 
-FIX_PROMPT_TEMPLATE = """You are fixing a bug in the FinServ Platform repository ({repo}).
+FIX_PROMPT_TEMPLATE = """You are resolving a GitHub issue in the repository {repo}.
 
 ## GitHub Issue #{issue_number}: {issue_title}
 
@@ -99,17 +104,16 @@ FIX_PROMPT_TEMPLATE = """You are fixing a bug in the FinServ Platform repository
 
 ## Fix Protocol
 
-1. **Write the fix**: Implement the code changes described in the recommended fix. Follow existing code patterns and conventions.
-2. **Write a regression test**: Add a test in the appropriate `__tests__/` directory that would have caught this bug.
-3. **Run the test suite**: Execute `npm test` and ensure all tests pass (both new and existing).
+1. **Implement the fix**: Make the code changes described in the recommended fix. Follow existing code patterns and conventions.
+2. **Write tests**: Add tests that verify the fix works and would have caught the original issue.
+3. **Run the test suite**: Execute the project's test command and ensure all tests pass (both new and existing).
 4. **Open a PR**: Create a pull request with a clear description referencing the issue number.
 
 ## Code Standards
-- TypeScript strict mode
-- Use integer cents for monetary amounts (not floating point dollars)
-- Write regression tests in the module's `__tests__/` directory
 - Follow existing patterns in neighboring files
 - Keep changes minimal and focused
+- Write tests for your changes
+- Do not introduce new dependencies without justification
 """
 
 
@@ -143,6 +147,7 @@ class DevinClient:
         issue_body: str,
         repo: str,
         playbook_id: str | None = None,
+        issue_type: str = "bug",
     ) -> dict:
         """Create a Devin session to investigate a GitHub issue."""
         prompt = INVESTIGATION_PROMPT_TEMPLATE.format(
@@ -150,6 +155,7 @@ class DevinClient:
             issue_number=issue_number,
             issue_title=issue_title,
             issue_body=issue_body,
+            issue_type=issue_type,
         )
 
         payload: dict = {"prompt": prompt}

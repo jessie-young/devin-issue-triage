@@ -13,6 +13,7 @@ from app.config import settings
 from app.models.investigation import InvestigationStatus
 from app.services.devin_client import devin_client
 from app.services.investigation_store import investigation_store
+from app.services.playbook_router import playbook_router
 from app.services.session_poller import session_poller
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,13 @@ async def github_webhook(
         issue_labels=issue_labels,
     )
 
+    # Detect issue type and resolve playbook
+    issue_type, playbook_id = playbook_router.resolve_playbook(issue_title, issue_labels)
+    logger.info(
+        "Issue #%s detected as '%s' → playbook %s",
+        issue_number, issue_type.value, playbook_id or "(none)",
+    )
+
     # Kick off investigation
     try:
         session = await devin_client.create_investigation_session(
@@ -80,6 +88,8 @@ async def github_webhook(
             issue_title=issue_title,
             issue_body=issue_body,
             repo=settings.target_repo,
+            playbook_id=playbook_id,
+            issue_type=issue_type.value,
         )
         session_id = session.get("session_id") or session.get("id", "")
 
