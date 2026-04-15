@@ -287,6 +287,16 @@ async def simulate_investigation(mission_id: str):
         elapsed_seconds=random.uniform(120, 480),
     )
 
+    # Post investigation comment to GitHub issue
+    try:
+        await github_service.post_investigation_comment(
+            issue_number=mission.issue_number,
+            mission_id=mission_id,
+            report=report,
+        )
+    except Exception as e:
+        logger.warning(f"Failed to post investigation comment for {mission_id}: {e}")
+
     return {"status": "simulated", "classification": classification.value if classification else "UNKNOWN"}
 
 

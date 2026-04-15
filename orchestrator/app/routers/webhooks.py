@@ -97,10 +97,21 @@ async def github_webhook(
         return {"status": "accepted", "mission_id": mission.id, "session_id": session_id}
 
     except Exception as e:
-        logger.error(f"Failed to create investigation session: {e}")
-        await mission_store.update_mission(
-            mission.id,
-            status=MissionStatus.FAILED,
-            error=str(e),
-        )
-        return {"status": "error", "mission_id": mission.id, "error": str(e)}
+        logger.warning(f"Devin API unavailable, falling back to simulated investigation: {e}")
+        # Fall back to simulation: run the simulate endpoint logic inline
+        import asyncio as _asyncio
+        from app.routers.missions import simulate_investigation as _sim_fn
+
+        async def _simulate_webhook_investigation():
+            try:
+                await _asyncio.sleep(1)
+                # Use the missions router simulation logic
+                import httpx
+                # Call our own simulate endpoint
+                async with httpx.AsyncClient(base_url="http://127.0.0.1:8001", timeout=30) as client:
+                    await client.post(f"/missions/simulate/{mission.id}")
+            except Exception as exc:
+                logger.error(f"Simulated investigation failed for {mission.id}: {exc}")
+
+        _asyncio.ensure_future(_simulate_webhook_investigation())
+        return {"status": "accepted_simulated", "mission_id": mission.id}

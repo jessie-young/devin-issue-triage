@@ -1,10 +1,11 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Inbox, Search, CheckCircle2 } from 'lucide-react';
 import { useMissionControl } from './hooks/useMissionControl';
 import { HeaderBar } from './components/HeaderBar';
 import { MissionColumn } from './components/MissionColumn';
 import { TelemetryStrip } from './components/TelemetryStrip';
 import { FileMissionInput } from './components/FileMissionInput';
+import { MetricsPanel } from './components/MetricsPanel';
 import type { Mission } from './types/mission';
 
 function App() {
@@ -18,6 +19,7 @@ function App() {
     fileMission,
   } = useMissionControl();
 
+  const [showMetrics, setShowMetrics] = useState(false);
   const missionList = useMemo(() => Object.values(missions), [missions]);
 
   const queued = useMemo(
@@ -47,6 +49,7 @@ function App() {
         completed={stats.completed}
         queued={stats.queued}
         total={stats.total}
+        resolvedToday={stats.resolved_today}
         uptimeStart={uptimeStart}
         connected={connected}
       />
@@ -69,7 +72,17 @@ function App() {
             </span>
           </div>
         </div>
-        <FileMissionInput onFile={fileMission} />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowMetrics(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-app-border
+              bg-white hover:bg-app-panel text-xs font-medium text-app-text-secondary
+              hover:text-app-text transition-all shadow-sm"
+          >
+            Metrics
+          </button>
+          <FileMissionInput onFile={fileMission} />
+        </div>
       </div>
 
       {/* Three-column layout */}
@@ -109,6 +122,11 @@ function App() {
 
       {/* Activity Log */}
       <TelemetryStrip entries={telemetryLog} />
+
+      {/* Metrics Modal */}
+      {showMetrics && (
+        <MetricsPanel missions={missionList} onClose={() => setShowMetrics(false)} />
+      )}
     </div>
   );
 }

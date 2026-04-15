@@ -64,6 +64,7 @@ export interface DashboardStats {
   completed: number;
   queued: number;
   total: number;
+  resolved_today: number;
   strike_count: number;
   assist_count: number;
   command_count: number;

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-import uuid
+from datetime import datetime, timezone
 from typing import Optional
 
 from app.models.mission import (
@@ -120,6 +120,13 @@ class MissionStore:
         )])
         queued = len([m for m in self._missions.values() if m.status == MissionStatus.QUEUED])
 
+        # Resolved today: completed missions whose completed_at falls on today (UTC)
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+        resolved_today = len([m for m in self._missions.values()
+            if m.status in (MissionStatus.MISSION_COMPLETE, MissionStatus.ROUTED, MissionStatus.CLOSED)
+            and m.completed_at is not None and m.completed_at >= today_start
+        ])
+
         return DashboardState(
             missions=self._missions,
             stats={
@@ -127,6 +134,7 @@ class MissionStore:
                 "completed": completed,
                 "queued": queued,
                 "total": len(self._missions),
+                "resolved_today": resolved_today,
                 "strike_count": len([m for m in self._missions.values() if m.classification == MissionClassification.STRIKE]),
                 "assist_count": len([m for m in self._missions.values() if m.classification == MissionClassification.ASSIST]),
                 "command_count": len([m for m in self._missions.values() if m.classification == MissionClassification.COMMAND]),

@@ -6,7 +6,7 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8001';
 export function useMissionControl() {
   const [missions, setMissions] = useState<Record<string, Mission>>({});
   const [stats, setStats] = useState({
-    active: 0, completed: 0, queued: 0, total: 0,
+    active: 0, completed: 0, queued: 0, total: 0, resolved_today: 0,
     strike_count: 0, assist_count: 0, command_count: 0,
   });
   const [uptimeStart, setUptimeStart] = useState<number>(Date.now() / 1000);
@@ -29,11 +29,18 @@ export function useMissionControl() {
 
   const recalcStats = useCallback((missionMap: Record<string, Mission>) => {
     const all = Object.values(missionMap);
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+    const todayStartSec = todayStart.getTime() / 1000;
     setStats({
       active: all.filter(m => ['INVESTIGATING', 'INVESTIGATION_COMPLETE', 'FIX_IN_PROGRESS', 'LAUNCHING'].includes(m.status)).length,
       completed: all.filter(m => ['MISSION_COMPLETE', 'ROUTED', 'CLOSED'].includes(m.status)).length,
       queued: all.filter(m => m.status === 'QUEUED').length,
       total: all.length,
+      resolved_today: all.filter(m =>
+        ['MISSION_COMPLETE', 'ROUTED', 'CLOSED'].includes(m.status) &&
+        m.completed_at != null && m.completed_at >= todayStartSec
+      ).length,
       strike_count: all.filter(m => m.classification === 'STRIKE').length,
       assist_count: all.filter(m => m.classification === 'ASSIST').length,
       command_count: all.filter(m => m.classification === 'COMMAND').length,
