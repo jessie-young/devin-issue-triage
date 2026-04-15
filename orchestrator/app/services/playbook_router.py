@@ -1,7 +1,12 @@
 """Dynamic playbook routing based on issue type detection.
 
 Detects issue type from title prefixes and GitHub labels, then looks up
-the appropriate Devin playbook by name (not hardcoded ID).
+the appropriate Devin playbook by name.  When the Devin v3 REST API does
+not return playbooks (they are currently only visible via MCP), we fall
+back to hardcoded IDs.
+
+STOPGAP: The _FALLBACK_PLAYBOOK_IDS dict below should be removed once
+playbook lookup via MCP or the REST API is wired up at startup.
 """
 
 from __future__ import annotations
@@ -68,6 +73,20 @@ _ISSUE_TYPE_TO_PLAYBOOK_NAME: dict[IssueType, str] = {
     IssueType.REFACTORING: "Documentation & Refactoring Assessment Protocol",
     IssueType.SECURITY: "Bug Investigation Protocol",
     IssueType.INVESTIGATION: "Bug Investigation Protocol",
+}
+
+# STOPGAP: Hardcoded playbook IDs.
+# The Devin v3 REST API `/organizations/{org}/playbooks` currently returns
+# an empty list even though playbooks exist (they were created via the
+# Devin webapp / MCP and are not exposed on that endpoint yet).  Until we
+# wire up MCP-based lookup at startup, we fall back to these IDs so that
+# every Devin session is created with the correct playbook attached.
+# TODO: Remove this dict once MCP-based or REST-based playbook lookup works.
+_FALLBACK_PLAYBOOK_IDS: dict[str, str] = {
+    "Bug Investigation Protocol": "playbook-c011e51cdeda4728af1d6bb4de02d965",
+    "Bug Fix Protocol": "playbook-edcefbde3f9d45bb82476bc36a2dfa8d",
+    "Feature Request Evaluation Protocol": "playbook-6f088eb7ccb14e81ad2d3fa79ec2884a",
+    "Documentation & Refactoring Assessment Protocol": "playbook-1558df904e3444a88fa3a8cadb013a67",
 }
 
 
@@ -144,13 +163,30 @@ class PlaybookRouter:
             logger.exception("Failed to load playbooks from Devin API")
 
     def get_playbook_id(self, issue_type: IssueType) -> Optional[str]:
-        """Return the playbook ID for the given issue type, or None."""
-        if not self._loaded:
-            return None
+        """Return the playbook ID for the given issue type, or None.
+
+        Tries the dynamically-loaded index first; falls back to the
+        hardcoded _FALLBACK_PLAYBOOK_IDS if the API returned nothing.
+        """
         playbook_name = _ISSUE_TYPE_TO_PLAYBOOK_NAME.get(issue_type)
         if not playbook_name:
             return None
-        pb_id = self._index.get(playbook_name)
+
+        # Prefer dynamically loaded IDs
+        pb_id = self._index.get(playbook_name) if self._loaded else None
+
+        # STOPGAP: fall back to hardcoded IDs when the API returns empty
+        if not pb_id:
+            pb_id = _FALLBACK_PLAYBOOK_IDS.get(playbook_name)
+            if pb_id:
+                logger.info(
+                    "Routing issue type '%s' → playbook '%s' (%s) [hardcoded fallback]",
+                    issue_type.value,
+                    playbook_name,
+                    pb_id,
+                )
+                return pb_id
+
         if pb_id:
             logger.info(
                 "Routing issue type '%s' → playbook '%s' (%s)",
