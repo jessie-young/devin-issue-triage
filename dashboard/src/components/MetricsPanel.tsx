@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { BarChart3, X } from 'lucide-react';
+import { BarChart3, X, Clock, TrendingDown, AlertTriangle } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, LineChart, Line, CartesianGrid,
@@ -16,6 +16,10 @@ const COLORS = {
   needsReview: '#d97706',
   escalate: '#dc2626',
   primary: '#4f46e5',
+  info: '#0284c7',
+  ageFresh: '#059669',
+  ageModerate: '#d97706',
+  ageStale: '#dc2626',
 };
 
 export function MetricsPanel({ investigations, onClose }: MetricsPanelProps) {
@@ -100,10 +104,78 @@ export function MetricsPanel({ investigations, onClose }: MetricsPanelProps) {
     return points;
   }, [investigations]);
 
+  // Median time to resolution (seconds)
+  const medianResolutionTime = useMemo(() => {
+    const resolved = investigations.filter(
+      m => ['RESOLVED', 'ROUTED', 'CLOSED'].includes(m.status) && m.completed_at && m.created_at
+    );
+    if (resolved.length === 0) return 0;
+    const durations = resolved
+      .map(m => (m.completed_at! - m.created_at))
+      .sort((a, b) => a - b);
+    const mid = Math.floor(durations.length / 2);
+    return durations.length % 2 === 0
+      ? (durations[mid - 1] + durations[mid]) / 2
+      : durations[mid];
+  }, [investigations]);
+
+  // Resolution rate (resolved / total)
+  const resolutionRate = useMemo(() => {
+    if (investigations.length === 0) return 0;
+    const resolved = investigations.filter(
+      m => ['RESOLVED', 'ROUTED', 'CLOSED'].includes(m.status)
+    ).length;
+    return Math.round((resolved / investigations.length) * 100);
+  }, [investigations]);
+
+  // Oldest open issue age (in hours)
+  const oldestOpenAge = useMemo(() => {
+    const now = Date.now() / 1000;
+    const open = investigations.filter(
+      m => !['RESOLVED', 'ROUTED', 'CLOSED'].includes(m.status)
+    );
+    if (open.length === 0) return null;
+    const oldest = open.reduce((prev, curr) =>
+      curr.created_at < prev.created_at ? curr : prev
+    );
+    return {
+      hours: Math.round((now - oldest.created_at) / 3600),
+      issueNumber: oldest.issue_number,
+    };
+  }, [investigations]);
+
+  // Issue age distribution (open issues grouped by age bucket)
+  const issueAgeDistribution = useMemo(() => {
+    const now = Date.now() / 1000;
+    const open = investigations.filter(
+      m => !['RESOLVED', 'ROUTED', 'CLOSED'].includes(m.status)
+    );
+    const buckets = [
+      { label: '< 1h', min: 0, max: 3600, count: 0, color: COLORS.ageFresh },
+      { label: '1-6h', min: 3600, max: 21600, count: 0, color: COLORS.ageFresh },
+      { label: '6-24h', min: 21600, max: 86400, count: 0, color: COLORS.ageModerate },
+      { label: '1-3d', min: 86400, max: 259200, count: 0, color: COLORS.ageModerate },
+      { label: '3-7d', min: 259200, max: 604800, count: 0, color: COLORS.ageStale },
+      { label: '> 7d', min: 604800, max: Infinity, count: 0, color: COLORS.ageStale },
+    ];
+    open.forEach(m => {
+      const age = now - m.created_at;
+      const bucket = buckets.find(b => age >= b.min && age < b.max);
+      if (bucket) bucket.count++;
+    });
+    return buckets;
+  }, [investigations]);
+
   const formatTime = (seconds: number) => {
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    return `${m}m ${s}s`;
+    if (seconds < 60) return `${Math.round(seconds)}s`;
+    if (seconds < 3600) {
+      const m = Math.floor(seconds / 60);
+      const s = Math.floor(seconds % 60);
+      return `${m}m ${s}s`;
+    }
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    return `${h}h ${m}m`;
   };
 
   return (
@@ -126,8 +198,8 @@ export function MetricsPanel({ investigations, onClose }: MetricsPanelProps) {
           </button>
         </div>
 
-        {/* Summary stats */}
-        <div className="grid grid-cols-4 gap-4 px-6 py-4 border-b border-app-border">
+        {/* Summary stats — row 1 */}
+        <div className="grid grid-cols-4 gap-4 px-6 pt-4 pb-2">
           <StatCard label="Total Issues" value={investigations.length} />
           <StatCard
             label="Resolved"
@@ -141,6 +213,28 @@ export function MetricsPanel({ investigations, onClose }: MetricsPanelProps) {
                 ? `${Math.round((investigations.filter(m => m.classification === 'AUTO_FIX').length / investigations.length) * 100)}%`
                 : '0%'
             }
+          />
+        </div>
+        {/* Summary stats — row 2 */}
+        <div className="grid grid-cols-4 gap-4 px-6 pb-4 pt-2 border-b border-app-border">
+          <StatCard
+            label="Median Resolution"
+            value={medianResolutionTime > 0 ? formatTime(medianResolutionTime) : '—'}
+            icon={<Clock className="w-3.5 h-3.5 text-app-primary" />}
+          />
+          <StatCard
+            label="Resolution Rate"
+            value={`${resolutionRate}%`}
+            icon={<TrendingDown className="w-3.5 h-3.5 text-app-success" />}
+          />
+          <StatCard
+            label="Open Issues"
+            value={investigations.filter(m => !['RESOLVED', 'ROUTED', 'CLOSED'].includes(m.status)).length}
+          />
+          <StatCard
+            label="Oldest Open"
+            value={oldestOpenAge ? `${oldestOpenAge.hours}h (#${oldestOpenAge.issueNumber})` : '—'}
+            icon={<AlertTriangle className="w-3.5 h-3.5 text-app-warning" />}
           />
         </div>
 
@@ -236,16 +330,39 @@ export function MetricsPanel({ investigations, onClose }: MetricsPanelProps) {
               <EmptyChart />
             )}
           </ChartCard>
+
+          {/* Issue age distribution */}
+          <ChartCard title="Open Issue Age Distribution">
+            {issueAgeDistribution.some(b => b.count > 0) ? (
+              <ResponsiveContainer width="100%" height={160}>
+                <BarChart data={issueAgeDistribution}>
+                  <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                  <Tooltip />
+                  <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                    {issueAgeDistribution.map((entry, i) => (
+                      <Cell key={i} fill={entry.color} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <EmptyChart />
+            )}
+          </ChartCard>
         </div>
       </div>
     </div>
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string | number }) {
+function StatCard({ label, value, icon }: { label: string; value: string | number; icon?: React.ReactNode }) {
   return (
     <div className="text-center p-3 rounded-lg bg-app-panel border border-app-border">
-      <div className="text-xs font-medium text-app-text-muted">{label}</div>
+      <div className="text-xs font-medium text-app-text-muted flex items-center justify-center gap-1">
+        {icon}
+        {label}
+      </div>
       <div className="text-xl font-semibold text-app-text mt-1">{value}</div>
     </div>
   );
