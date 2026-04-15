@@ -38,7 +38,7 @@ export function HeaderBar({ active, completed, queued, total, resolvedToday, upt
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-app-primary flex items-center justify-center">
-              <Activity className="w-4.5 h-4.5 text-white" />
+              <Activity className="w-[1.125rem] h-[1.125rem] text-white" />
             </div>
             <div>
               <h1 className="text-base font-semibold text-app-text">

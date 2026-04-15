@@ -30,7 +30,9 @@ export function MetricsPanel({ missions, onClose }: MetricsPanelProps) {
       const key = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       dayMap[key] = (dayMap[key] || 0) + 1;
     });
-    return Object.entries(dayMap).map(([date, count]) => ({ date, count }));
+    return Object.entries(dayMap)
+      .map(([date, count]) => ({ date, count }))
+      .sort((a, b) => new Date(a.date + ' 2026').getTime() - new Date(b.date + ' 2026').getTime());
   }, [missions]);
 
   // Average investigation time
