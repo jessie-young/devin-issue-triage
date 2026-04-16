@@ -281,8 +281,8 @@ export function InvestigationCard({ investigation, onLaunch, onApprove, compact 
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
               className={`px-3 py-1.5 rounded-md text-xs font-semibold
-                ${investigation.classification === 'ESCALATE' ? 'bg-app-danger' : 'bg-app-warning'} text-white
-                hover:opacity-90
+                bg-app-primary text-white
+                hover:bg-app-primary-hover
                 transition-all duration-200
                 inline-flex items-center gap-1.5 shadow-sm`}
             >
@@ -312,8 +312,8 @@ export function InvestigationCard({ investigation, onLaunch, onApprove, compact 
                 <button
                   onClick={(e) => { e.stopPropagation(); onApprove(investigation.id); }}
                   className="px-3 py-1.5 rounded-md text-xs font-semibold
-                    bg-app-success text-white
-                    hover:bg-app-success/90
+                    bg-app-primary text-white
+                    hover:bg-app-primary-hover
                     transition-all duration-200
                     inline-flex items-center gap-1.5 shadow-sm"
                 >
