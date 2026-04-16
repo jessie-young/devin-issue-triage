@@ -32,6 +32,12 @@ class LaunchFixRequest(BaseModel):
     investigation_id: str
 
 
+class RouteRequest(BaseModel):
+    """Request to route a NEEDS_REVIEW or ESCALATE investigation."""
+    investigation_id: str
+    action: str = "route"  # route, dismiss
+
+
 @router.get("/")
 async def list_investigations():
     """List all investigations."""
@@ -246,6 +252,45 @@ async def launch_fix(req: LaunchFixRequest):
 
         _asyncio.ensure_future(_simulate_fix())
         return {"status": "launched_simulated", "investigation_id": req.investigation_id}
+
+
+@router.post("/route")
+async def route_investigation(req: RouteRequest):
+    """Route a NEEDS_REVIEW or ESCALATE investigation to the Resolved column."""
+    investigation = investigation_store.get_investigation(req.investigation_id)
+    if not investigation:
+        raise HTTPException(status_code=404, detail="Investigation not found")
+
+    if investigation.status != InvestigationStatus.INVESTIGATION_COMPLETE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Investigation is in state {investigation.status.value}, expected INVESTIGATION_COMPLETE",
+        )
+
+    if investigation.classification not in (
+        InvestigationClassification.NEEDS_REVIEW,
+        InvestigationClassification.ESCALATE,
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only NEEDS_REVIEW or ESCALATE investigations can be routed. This is {investigation.classification}",
+        )
+
+    await investigation_store.update_investigation(
+        req.investigation_id,
+        status=InvestigationStatus.ROUTED,
+        completed_at=time.time(),
+    )
+
+    await event_bus.publish(
+        SSEEvent(
+            event_type="investigation_resolved",
+            investigation_id=req.investigation_id,
+            data={"action": req.action},
+        )
+    )
+
+    return {"status": "routed", "investigation_id": req.investigation_id, "action": req.action}
 
 
 @router.post("/ingest-all")
