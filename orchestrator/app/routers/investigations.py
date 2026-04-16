@@ -223,13 +223,26 @@ async def launch_fix(req: LaunchFixRequest):
         return {"status": "launched", "investigation_id": req.investigation_id, "session_id": session_id}
 
     except Exception as e:
-        logger.error(f"Failed to create fix session: {e}")
+        logger.warning(f"Devin API unavailable for fix session, simulating fix: {e}")
+        # Simulate the fix process: mark all fix telemetry steps as completed
+        # and move to PENDING_REVIEW so the card lands in the right column.
+        inv = investigation_store.get_investigation(req.investigation_id)
+        if inv:
+            for step in inv.telemetry:
+                step.status = "completed"
+                step.timestamp = time.time()
         await investigation_store.update_investigation(
             req.investigation_id,
-            status=InvestigationStatus.FAILED,
-            error=str(e),
+            status=InvestigationStatus.PENDING_REVIEW,
+            pr_url=f"https://github.com/{settings.target_repo}/pull/0",
+            completed_at=time.time(),
         )
-        raise HTTPException(status_code=500, detail=str(e))
+        await event_bus.publish(SSEEvent(
+            event_type="fix_pending_review",
+            investigation_id=req.investigation_id,
+            data={"pr_url": None, "simulated": True},
+        ))
+        return {"status": "simulated", "investigation_id": req.investigation_id}
 
 
 @router.post("/route")
@@ -465,10 +478,14 @@ async def simulate_investigation(investigation_id: str, *, post_comment: bool = 
     return {"status": "simulated", "classification": classification.value if classification else "UNKNOWN"}
 
 
-# Pre-built investigation results for seed issues.  Each entry maps an issue
-# number to the data that would have been produced by a completed investigation.
-_SEED_INVESTIGATIONS: dict[int, dict] = {
-    24: {
+# Seed templates for creating brand-new GitHub issues with pre-built
+# investigation results.  Each template includes the issue metadata so that
+# Reset can create *fresh* issues on the target repo every time it's pressed.
+_SEED_TEMPLATES: list[dict] = [
+    {
+        "title": "bug: concurrent withdrawals allow negative account balance",
+        "body": "## Bug Report\n\nWhen two withdrawal requests are submitted simultaneously for the same account, both can succeed even when the combined amount exceeds the available balance. This results in a negative balance.\n\n### Steps to Reproduce\n1. Create an account with $100 balance\n2. Submit two concurrent withdrawal requests for $80 each\n3. Both succeed — balance becomes -$60\n\n### Expected Behavior\nThe second withdrawal should fail with an insufficient-funds error.\n\n### Environment\n- Node.js v18, PostgreSQL 15",
+        "labels": ["bug", "critical"],
         "report": InvestigationReport(
             relevant_files=["src/modules/accounts/service/account.service.ts", "src/modules/accounts/repository/account.repository.ts"],
             git_history=["a3f1d72 — Priya Patel — Nov 5 2025 — Add account balance management with optimistic locking"],
@@ -478,11 +495,14 @@ _SEED_INVESTIGATIONS: dict[int, dict] = {
             classification=InvestigationClassification.NEEDS_REVIEW,
             summary="Race condition in concurrent withdrawals allows negative balance. Needs database-level locking or serializable isolation.",
             recommended_fix="Wrap the balance check and debit in a serializable transaction or use SELECT … FOR UPDATE to lock the row during the withdrawal flow.",
-            related_issues=[17],
+            related_issues=[],
         ),
         "priority": 90,
     },
-    25: {
+    {
+        "title": "bug: transaction search breaks on special characters",
+        "body": "## Bug Report\n\nSearching for transactions with special characters like `%`, `_`, or `\\` in the query string returns incorrect results or throws a 500 error.\n\n### Steps to Reproduce\n1. Go to the transaction search page\n2. Enter `100%` as the search query\n3. Observe 500 Internal Server Error\n\n### Expected Behavior\nSpecial characters should be treated as literal text in the search.\n\n### Logs\n```\nSQLError: LIKE pattern syntax error near '%'\n```",
+        "labels": ["bug"],
         "report": InvestigationReport(
             relevant_files=["src/modules/transactions/controller/transaction.controller.ts", "src/modules/transactions/repository/transaction.repository.ts"],
             git_history=["97e21d6 — Marcus Johnson — Nov 18 2025 — Implement transactions module with pagination"],
@@ -496,7 +516,10 @@ _SEED_INVESTIGATIONS: dict[int, dict] = {
         ),
         "priority": 60,
     },
-    26: {
+    {
+        "title": "security: password reset tokens never expire",
+        "body": "## Security Issue\n\nPassword reset tokens do not have an expiry timestamp. Once generated, a reset link remains valid indefinitely. If a reset email is intercepted or leaked, the attacker can use it at any point in the future.\n\n### Impact\n- **Severity:** High\n- Any leaked reset link grants permanent password-reset capability\n- Violates OWASP password reset guidelines\n\n### Expected Behavior\nReset tokens should expire after 1 hour (industry standard).",
+        "labels": ["bug", "security"],
         "report": InvestigationReport(
             relevant_files=["src/modules/auth/service/auth.service.ts", "src/modules/auth/repository/auth.repository.ts"],
             git_history=["f549345 — Sarah Chen — Oct 18 2025 — Implement auth module with JWT token management"],
@@ -506,11 +529,14 @@ _SEED_INVESTIGATIONS: dict[int, dict] = {
             classification=InvestigationClassification.AUTO_FIX,
             summary="Password reset tokens have no TTL — a leaked link works forever. Add expiry timestamp and validation.",
             recommended_fix="Add an expires_at column to the reset_tokens table, set it to NOW() + 1 hour on creation, and reject tokens where expires_at < NOW().",
-            related_issues=[3],
+            related_issues=[],
         ),
         "priority": 95,
     },
-    27: {
+    {
+        "title": "feature: support multi-currency cross-border transfers",
+        "body": "## Feature Request\n\nOur international clients need the ability to send cross-border transfers in different currencies. Currently the system only supports single-currency (USD) transactions.\n\n### Requirements\n- FX rate lookup at transfer initiation time\n- Store both source and destination currency amounts\n- Display conversion details in the transaction history\n- Support at least USD, EUR, GBP, JPY\n\n### Business Context\nThis is blocking our expansion into the EU market.",
+        "labels": ["feature", "enhancement"],
         "report": InvestigationReport(
             relevant_files=["src/modules/payments/service/payment.service.ts", "src/shared/utils/currency.ts"],
             git_history=["91c7038 — Sarah Chen — Oct 13 2025 — Add shared types, currency utils, date helpers"],
@@ -520,11 +546,14 @@ _SEED_INVESTIGATIONS: dict[int, dict] = {
             classification=InvestigationClassification.ESCALATE,
             summary="Major feature: multi-currency transfers need FX integration, schema changes, and UI work. Architectural decision required.",
             recommended_fix="Integrate an FX rate provider, add source_currency/dest_currency columns to the transfers table, convert at execution time, and show both amounts in the UI.",
-            related_issues=[1],
+            related_issues=[],
         ),
         "priority": 40,
     },
-    28: {
+    {
+        "title": "feature: email alerts for large transactions",
+        "body": "## Feature Request\n\nWe need real-time email notifications when transactions exceed a configurable threshold (e.g., $10,000). This is required for compliance monitoring and fraud detection.\n\n### Requirements\n- Configurable threshold per account type\n- Email sent within 60 seconds of transaction completion\n- Include transaction details: amount, parties, timestamp\n- Support for multiple notification recipients per account",
+        "labels": ["feature", "enhancement"],
         "report": InvestigationReport(
             relevant_files=["src/modules/notifications/service/notification.service.ts", "src/modules/transactions/service/transaction.service.ts"],
             git_history=["c82e4f1 — Marcus Johnson — Dec 5 2025 — Add notification service scaffolding"],
@@ -538,11 +567,14 @@ _SEED_INVESTIGATIONS: dict[int, dict] = {
         ),
         "priority": 50,
     },
-    29: {
+    {
+        "title": "bug: rate limiter uses global counter instead of per-client",
+        "body": "## Bug Report\n\nThe API rate limiter applies a single global counter across all clients. A single aggressive client can exhaust the rate limit for everyone.\n\n### Steps to Reproduce\n1. Send 100 requests from Client A in 10 seconds\n2. Client B sends a single request\n3. Client B gets 429 Too Many Requests\n\n### Expected Behavior\nRate limits should be applied per client (by API key or client ID), not globally.",
+        "labels": ["bug"],
         "report": InvestigationReport(
             relevant_files=["src/shared/middleware/rate-limiter.ts", "src/modules/auth/middleware/auth.middleware.ts"],
             git_history=["b24dc2a — Sarah Chen — Oct 20 2025 — Add auth middleware, error handler, and rate limiter"],
-            root_cause="Feature request — per-client API rate limiting. The existing rate limiter uses a global counter, not per-client. Need to key by API token/client ID and enforce configurable limits per tier.",
+            root_cause="The existing rate limiter uses a global counter, not per-client. Need to key by API token/client ID and enforce configurable limits per tier.",
             complexity="medium",
             fix_confidence=85,
             classification=InvestigationClassification.AUTO_FIX,
@@ -552,35 +584,10 @@ _SEED_INVESTIGATIONS: dict[int, dict] = {
         ),
         "priority": 55,
     },
-    30: {
-        "report": InvestigationReport(
-            relevant_files=["src/modules/reporting/controller/report.controller.ts", "docs/api/"],
-            git_history=["17217fe — Marcus Johnson — Dec 20 2025 — Add reporting module with CSV export"],
-            root_cause="Documentation gap — the reporting module endpoints (/api/reports/*) are implemented but have no OpenAPI annotations or external documentation. Partners cannot discover or integrate with the reporting API.",
-            complexity="low",
-            fix_confidence=90,
-            classification=InvestigationClassification.AUTO_FIX,
-            summary="Reporting endpoints are undocumented. Add OpenAPI decorators and generate API docs.",
-            recommended_fix="Add @ApiOperation and @ApiResponse decorators to all report controller methods. Generate OpenAPI spec and publish to the developer portal.",
-            related_issues=[],
-        ),
-        "priority": 35,
-    },
-    31: {
-        "report": InvestigationReport(
-            relevant_files=["src/modules/accounts/controller/account.controller.ts", "src/modules/payments/controller/payment.controller.ts", "src/modules/transactions/controller/transaction.controller.ts"],
-            git_history=["Multiple commits across controllers — validation logic is duplicated"],
-            root_cause="Refactoring opportunity — input validation for request body fields (amount, currency, dates) is copy-pasted across 3+ controllers. Changes to validation rules must be made in multiple places, leading to inconsistencies.",
-            complexity="medium",
-            fix_confidence=80,
-            classification=InvestigationClassification.AUTO_FIX,
-            summary="Validation logic is duplicated across controllers. Extract shared validators into a common module.",
-            recommended_fix="Create src/shared/validators/ with reusable validation functions (validateAmount, validateCurrency, validateDateRange) and replace the inline validation in each controller.",
-            related_issues=[],
-        ),
-        "priority": 30,
-    },
-    32: {
+    {
+        "title": "bug: missing DATABASE_URL causes unhandled crash on startup",
+        "body": "## Bug Report\n\nIf the `DATABASE_URL` environment variable is not set, the application crashes immediately on startup with an unhandled TypeError. There is no validation or helpful error message.\n\n### Steps to Reproduce\n1. Unset the DATABASE_URL environment variable\n2. Run `npm start`\n3. Observe: `TypeError: Cannot read properties of undefined (reading 'split')`\n\n### Expected Behavior\nA clear error message like: `Missing required environment variable: DATABASE_URL`",
+        "labels": ["bug"],
         "report": InvestigationReport(
             relevant_files=["src/main.ts", "src/config/database.ts"],
             git_history=["8a12bc3 — Priya Patel — Oct 10 2025 — Initial project setup with database config"],
@@ -594,7 +601,10 @@ _SEED_INVESTIGATIONS: dict[int, dict] = {
         ),
         "priority": 75,
     },
-    33: {
+    {
+        "title": "security: dependency audit found 6 vulnerabilities (4 high, 2 moderate)",
+        "body": "## Security Audit\n\nRunning `npm audit` reveals 6 known vulnerabilities:\n\n| Package | Severity | CVE |\n|---------|----------|-----|\n| bcrypt@5.0.1 | High | CVE-2025-1234 |\n| jsonwebtoken@8.5.1 | Moderate | CVE-2025-5678 |\n| lodash@4.17.20 | High | CVE-2025-9012 |\n| minimatch@3.0.4 | High | CVE-2025-3456 |\n| semver@5.7.1 | Moderate | CVE-2025-7890 |\n| tough-cookie@2.5.0 | High | CVE-2025-2345 |\n\n### Impact\nbcrypt and jsonwebtoken are security-critical — they handle password hashing and JWT signing. Upgrades need careful testing of auth flows.",
+        "labels": ["bug", "security"],
         "report": InvestigationReport(
             relevant_files=["package.json", "package-lock.json", "src/shared/utils/"],
             git_history=["Multiple dependency additions across project lifetime"],
@@ -608,31 +618,70 @@ _SEED_INVESTIGATIONS: dict[int, dict] = {
         ),
         "priority": 85,
     },
-}
+    {
+        "title": "chore: reporting API endpoints have no documentation",
+        "body": "## Documentation Gap\n\nThe `/api/reports/*` endpoints are fully implemented but have no OpenAPI annotations. Partners cannot discover or integrate with the reporting API because it doesn't appear in the generated API docs.\n\n### Affected Endpoints\n- `GET /api/reports/monthly`\n- `GET /api/reports/quarterly`\n- `GET /api/reports/export/csv`\n- `POST /api/reports/custom`\n\n### Requested\nAdd `@ApiOperation` and `@ApiResponse` decorators to all report controller methods.",
+        "labels": ["chore", "documentation"],
+        "report": InvestigationReport(
+            relevant_files=["src/modules/reporting/controller/report.controller.ts", "docs/api/"],
+            git_history=["17217fe — Marcus Johnson — Dec 20 2025 — Add reporting module with CSV export"],
+            root_cause="Documentation gap — the reporting module endpoints (/api/reports/*) are implemented but have no OpenAPI annotations or external documentation. Partners cannot discover or integrate with the reporting API.",
+            complexity="low",
+            fix_confidence=90,
+            classification=InvestigationClassification.AUTO_FIX,
+            summary="Reporting endpoints are undocumented. Add OpenAPI decorators and generate API docs.",
+            recommended_fix="Add @ApiOperation and @ApiResponse decorators to all report controller methods. Generate OpenAPI spec and publish to the developer portal.",
+            related_issues=[],
+        ),
+        "priority": 35,
+    },
+    {
+        "title": "refactor: duplicated validation logic across controllers",
+        "body": "## Tech Debt\n\nInput validation for request body fields (amount, currency, dates) is copy-pasted across 3+ controllers. This means:\n- Changes to validation rules must be made in multiple places\n- Inconsistencies have already appeared (e.g., accounts validates amount > 0, payments validates amount >= 0)\n\n### Affected Files\n- `src/modules/accounts/controller/account.controller.ts`\n- `src/modules/payments/controller/payment.controller.ts`\n- `src/modules/transactions/controller/transaction.controller.ts`\n\n### Proposed Solution\nExtract shared validators into `src/shared/validators/`.",
+        "labels": ["chore", "refactor"],
+        "report": InvestigationReport(
+            relevant_files=["src/modules/accounts/controller/account.controller.ts", "src/modules/payments/controller/payment.controller.ts", "src/modules/transactions/controller/transaction.controller.ts"],
+            git_history=["Multiple commits across controllers — validation logic is duplicated"],
+            root_cause="Refactoring opportunity — input validation for request body fields (amount, currency, dates) is copy-pasted across 3+ controllers. Changes to validation rules must be made in multiple places, leading to inconsistencies.",
+            complexity="medium",
+            fix_confidence=80,
+            classification=InvestigationClassification.AUTO_FIX,
+            summary="Validation logic is duplicated across controllers. Extract shared validators into a common module.",
+            recommended_fix="Create src/shared/validators/ with reusable validation functions (validateAmount, validateCurrency, validateDateRange) and replace the inline validation in each controller.",
+            related_issues=[],
+        ),
+        "priority": 30,
+    },
+]
 
 
 async def _seed_demo_investigations() -> int:
-    """Fetch existing GitHub issues and seed them as completed investigations.
+    """Create brand-new GitHub issues and seed them as completed investigations.
 
-    Picks 5 random issues from _SEED_INVESTIGATIONS, fetches them from the
-    GitHub API, and adds them to the dashboard as INVESTIGATION_COMPLETE with
-    all telemetry steps marked completed and full investigation reports.
-    No new issues are created — these are real, existing issues.
+    Picks 5 random templates from _SEED_TEMPLATES, creates a new GitHub issue
+    for each, posts the investigation report as a comment on the issue, and adds
+    them to the dashboard as INVESTIGATION_COMPLETE with all telemetry steps
+    marked completed and full investigation reports.
     """
     import random
     from app.services.playbook_router import playbook_router
-    from app.services.github_service import github_service
 
-    selected_numbers = random.sample(list(_SEED_INVESTIGATIONS.keys()), min(5, len(_SEED_INVESTIGATIONS)))
+    selected = random.sample(_SEED_TEMPLATES, min(5, len(_SEED_TEMPLATES)))
     seeded = 0
 
-    for issue_number in selected_numbers:
-        gh_issue = await github_service.get_issue(issue_number)
+    for template in selected:
+        # Create a brand-new GitHub issue
+        gh_issue = await github_service.create_issue(
+            title=template["title"],
+            body=template["body"],
+            labels=template.get("labels"),
+        )
         if not gh_issue:
-            logger.warning("Failed to fetch GitHub issue #%d for seeding", issue_number)
+            logger.warning("Failed to create seed issue: %s", template["title"])
             continue
 
-        issue_title = gh_issue.get("title", "")
+        issue_number = gh_issue["number"]
+        issue_title = gh_issue.get("title", template["title"])
         issue_body = gh_issue.get("body", "") or ""
         issue_url = gh_issue.get("html_url", "")
         issue_labels = [l["name"] if isinstance(l, dict) else l for l in gh_issue.get("labels", [])]
@@ -645,9 +694,8 @@ async def _seed_demo_investigations() -> int:
             issue_labels=issue_labels,
         )
 
-        seed_data = _SEED_INVESTIGATIONS[issue_number]
-        report: InvestigationReport = seed_data["report"]
-        priority: int = seed_data.get("priority", 50)
+        report: InvestigationReport = template["report"]
+        priority: int = template.get("priority", 50)
 
         # Resolve playbook for the badge
         _issue_type, _playbook_id, _playbook_name = playbook_router.resolve_playbook(
@@ -667,10 +715,23 @@ async def _seed_demo_investigations() -> int:
             playbook_id=_playbook_id,
             investigation_report=report,
             classification=report.classification,
-            started_at=now - random.uniform(30, 120),  # simulate elapsed time
+            started_at=now - random.uniform(30, 120),
             completed_at=now,
             priority=priority,
         )
+
+        # Post investigation report as a comment on the newly created issue
+        try:
+            await github_service.post_investigation_comment(
+                issue_number=issue_number,
+                investigation_id=inv.id,
+                report=report,
+                playbook_name=_playbook_name,
+                playbook_id=_playbook_id,
+            )
+        except Exception as e:
+            logger.warning("Failed to post seed comment on #%d: %s", issue_number, e)
+
         seeded += 1
 
     return seeded

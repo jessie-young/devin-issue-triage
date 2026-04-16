@@ -25,10 +25,10 @@ function classificationBadge(c: InvestigationClassification | null) {
 }
 
 function priorityBadge(priority: number) {
-  if (priority >= 80) return { label: 'P0 Critical', style: 'bg-red-100 text-red-700 border-red-200' };
-  if (priority >= 60) return { label: 'P1 High', style: 'bg-orange-100 text-orange-700 border-orange-200' };
-  if (priority >= 40) return { label: 'P2 Medium', style: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
-  return { label: 'P3 Low', style: 'bg-slate-100 text-slate-600 border-slate-200' };
+  if (priority >= 80) return { label: 'P0 Critical', style: 'bg-red-600 text-white' };
+  if (priority >= 60) return { label: 'P1 High', style: 'bg-orange-500 text-white' };
+  if (priority >= 40) return { label: 'P2 Medium', style: 'bg-yellow-400 text-yellow-900' };
+  return { label: 'P3 Low', style: 'bg-slate-200 text-slate-600' };
 }
 
 function nextStepText(classification: InvestigationClassification | null): string {
@@ -203,7 +203,7 @@ export function InvestigationCard({ investigation, onLaunch, onApprove, compact 
           <div className="mt-3 space-y-2">
             {/* Priority & Confidence row */}
             <div className="flex items-center gap-2 flex-wrap">
-              <span className={`text-xs font-semibold px-2 py-0.5 rounded border ${pb.style}`}>
+              <span className={`text-xs font-bold px-2.5 py-1 rounded-md shadow-sm ${pb.style}`}>
                 {pb.label}
               </span>
               {investigation.investigation_report.fix_confidence > 0 && (
