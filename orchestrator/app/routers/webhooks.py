@@ -57,10 +57,10 @@ async def github_webhook(
 
     issue = payload.get("issue", {})
     issue_number = issue.get("number")
-    issue_title = issue.get("title", "")
-    issue_body = issue.get("body", "")
-    issue_url = issue.get("html_url", "")
-    issue_labels = [l.get("name", "") for l in issue.get("labels", [])]
+    issue_title = issue.get("title") or ""
+    issue_body = issue.get("body") or ""
+    issue_url = issue.get("html_url") or ""
+    issue_labels = [l.get("name", "") for l in issue.get("labels") or []]
 
     if not issue_number:
         raise HTTPException(status_code=400, detail="Missing issue number")
