@@ -113,6 +113,15 @@ async def file_investigation(req: FileInvestigationRequest):
         issue_labels=issue_labels,
     )
 
+    # Detect issue type and resolve playbook
+    from app.services.playbook_router import playbook_router as _pb_router
+    _issue_type, _playbook_id, _playbook_name = _pb_router.resolve_playbook(issue_title, issue_labels)
+    await investigation_store.update_investigation(
+        investigation.id,
+        playbook_name=_playbook_name,
+        playbook_id=_playbook_id,
+    )
+
     # Kick off investigation
     try:
         session = await devin_client.create_investigation_session(
@@ -120,6 +129,8 @@ async def file_investigation(req: FileInvestigationRequest):
             issue_title=issue_title,
             issue_body=issue_body,
             repo=settings.target_repo,
+            playbook_id=_playbook_id,
+            issue_type=_issue_type.value,
         )
         session_id = session.get("session_id") or session.get("id", "")
 
@@ -310,6 +321,8 @@ async def simulate_investigation(investigation_id: str, *, post_comment: bool = 
                 issue_number=investigation.issue_number,
                 investigation_id=investigation_id,
                 report=report,
+                playbook_name=investigation.playbook_name,
+                playbook_id=investigation.playbook_id,
             )
         except Exception as e:
             logger.warning(f"Failed to post investigation comment for {investigation_id}: {e}")

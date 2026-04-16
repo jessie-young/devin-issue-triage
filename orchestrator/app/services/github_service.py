@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 COMMENT_TEMPLATE = """## Investigation Report
 
 **Investigation ID:** {investigation_id}
+**Playbook:** {playbook_line}
 **Classification:** {classification_badge}
 **Fix Confidence:** {confidence}/100
 **Complexity:** {complexity}
@@ -98,14 +99,25 @@ class GitHubService:
         issue_number: int,
         investigation_id: str,
         report: InvestigationReport,
+        playbook_name: str | None = None,
+        playbook_id: str | None = None,
     ) -> dict | None:
         """Post the investigation report as a comment on the GitHub issue."""
         files_list = "\n".join(f"- `{f}`" for f in report.relevant_files) or "- _None identified_"
         git_history = "\n".join(f"- {h}" for h in report.git_history) or "- _No relevant history found_"
         related = ", ".join(f"#{i}" for i in report.related_issues) if report.related_issues else "None"
 
+        # Build playbook line with link if ID is available
+        if playbook_name and playbook_id:
+            playbook_line = f"[{playbook_name}](https://app.devin.ai/playbooks/{playbook_id})"
+        elif playbook_name:
+            playbook_line = playbook_name
+        else:
+            playbook_line = "_Default_"
+
         body = COMMENT_TEMPLATE.format(
             investigation_id=investigation_id,
+            playbook_line=playbook_line,
             classification_badge=_classification_badge(report.classification),
             confidence=report.fix_confidence,
             complexity=report.complexity,

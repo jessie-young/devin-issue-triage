@@ -75,10 +75,17 @@ async def github_webhook(
     )
 
     # Detect issue type and resolve playbook
-    issue_type, playbook_id = playbook_router.resolve_playbook(issue_title, issue_labels)
+    issue_type, playbook_id, playbook_name = playbook_router.resolve_playbook(issue_title, issue_labels)
     logger.info(
-        "Issue #%s detected as '%s' → playbook %s",
-        issue_number, issue_type.value, playbook_id or "(none)",
+        "Issue #%s detected as '%s' → playbook '%s' (%s)",
+        issue_number, issue_type.value, playbook_name or "(none)", playbook_id or "(none)",
+    )
+
+    # Store playbook info on the investigation
+    await investigation_store.update_investigation(
+        investigation.id,
+        playbook_name=playbook_name,
+        playbook_id=playbook_id,
     )
 
     # Kick off investigation

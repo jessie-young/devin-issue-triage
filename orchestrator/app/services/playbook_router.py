@@ -202,11 +202,16 @@ class PlaybookRouter:
             )
         return pb_id
 
-    def resolve_playbook(self, title: str, labels: list[str]) -> tuple[IssueType, Optional[str]]:
-        """Detect issue type and return (issue_type, playbook_id) in one call."""
+    def get_playbook_name(self, issue_type: IssueType) -> Optional[str]:
+        """Return the human-readable playbook name for the given issue type."""
+        return _ISSUE_TYPE_TO_PLAYBOOK_NAME.get(issue_type)
+
+    def resolve_playbook(self, title: str, labels: list[str]) -> tuple[IssueType, Optional[str], Optional[str]]:
+        """Detect issue type and return (issue_type, playbook_id, playbook_name) in one call."""
         issue_type = detect_issue_type(title, labels)
         playbook_id = self.get_playbook_id(issue_type)
-        return issue_type, playbook_id
+        playbook_name = self.get_playbook_name(issue_type)
+        return issue_type, playbook_id, playbook_name
 
 
 # Singleton
