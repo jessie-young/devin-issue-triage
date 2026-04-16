@@ -441,68 +441,127 @@ async def simulate_investigation(investigation_id: str, *, post_comment: bool = 
 
 
 async def _seed_demo_investigations() -> int:
-    """Seed 5 pre-created issues into the Queue after reset.
+    """Create brand new GitHub issues on the target repo and seed them into
+    the Queue.
 
-    These match real GitHub issues (#58–#62) on demo-finserv-repo covering
-    all five issue categories (bug, feature, docs, chore, security). They
-    appear in the Queue column so the user can demo the full flow: queue →
-    investigate → classify → resolve.
-
-    Use the "Start All" button on the dashboard to kick off investigations.
+    Each reset picks 5 random issue templates from a pool, creates them as
+    real GitHub issues via the API, and adds them to the dashboard Queue.
+    This guarantees the issues are fresh and have never been investigated.
     """
+    import random
     from app.services.playbook_router import playbook_router
+    from app.services.github_service import github_service
 
-    seeds = [
+    # Pool of issue templates covering all categories
+    _ISSUE_POOL = [
+        # Bugs
         {
-            "issue_number": 58,
-            "issue_title": "bug: pagination shows infinite loading spinner on last page",
-            "issue_body": "When navigating to the last page of transactions, the 'Load More' button keeps appearing and triggers infinite loading. The pagination hasMore flag incorrectly returns true even when there are no more pages to fetch.",
-            "issue_url": "https://github.com/jessie-young/demo-finserv-repo/issues/58",
-            "issue_labels": ["bug"],
+            "title": "bug: pagination shows infinite loading spinner on last page",
+            "body": "When navigating to the last page of transactions, the 'Load More' button keeps appearing and triggers infinite loading. The pagination hasMore flag incorrectly returns true when there are no more pages.",
+            "labels": ["bug"],
         },
         {
-            "issue_number": 59,
-            "issue_title": "feature: add real-time WebSocket notifications for transaction alerts",
-            "issue_body": "Currently, users must manually refresh the dashboard to see new transaction alerts. We need real-time push notifications via WebSocket so that high-value transactions and suspicious activity alerts appear instantly.",
-            "issue_url": "https://github.com/jessie-young/demo-finserv-repo/issues/59",
-            "issue_labels": ["enhancement"],
+            "title": "bug: transaction search returns duplicate results when filtering by date range",
+            "body": "Searching transactions with a date range filter returns the same transaction multiple times. This happens because the date overlap query doesn't deduplicate results when a transaction spans midnight UTC.",
+            "labels": ["bug"],
         },
         {
-            "issue_number": 60,
-            "issue_title": "docs: add API authentication guide for third-party integrations",
-            "issue_body": "We are missing documentation for how third-party services should authenticate against our API. Partners have been asking for a clear guide covering OAuth2 flows, API key management, and rate limiting policies.",
-            "issue_url": "https://github.com/jessie-young/demo-finserv-repo/issues/60",
-            "issue_labels": ["documentation"],
+            "title": "bug: dark mode toggle resets on page refresh",
+            "body": "User preference for dark mode is lost on every page refresh. The theme setting is stored in component state but never persisted to localStorage or the user preferences API.",
+            "labels": ["bug"],
         },
         {
-            "issue_number": 61,
-            "issue_title": "chore: migrate legacy CommonJS bridge module to TypeScript ESM",
-            "issue_body": "The legacy API bridge (src/legacy/bridge.js) is the last remaining CommonJS module in the codebase. It should be migrated to TypeScript with ESM imports to align with the rest of the project.",
-            "issue_url": "https://github.com/jessie-young/demo-finserv-repo/issues/61",
-            "issue_labels": ["chore"],
+            "title": "bug: currency conversion shows stale exchange rates after midnight UTC",
+            "body": "The FX rate cache is set to 24h TTL but never invalidates on date rollover. After midnight UTC, converted amounts use yesterday's rates until the cache expires naturally.",
+            "labels": ["bug"],
         },
         {
-            "issue_number": 62,
-            "issue_title": "security: CSV export vulnerable to formula injection attacks",
-            "issue_body": "The CSV export functionality in the reporting module does not sanitize cell values before writing them. If a transaction description starts with =, +, -, or @, spreadsheet applications interpret it as a formula.",
-            "issue_url": "https://github.com/jessie-young/demo-finserv-repo/issues/62",
-            "issue_labels": ["security", "bug"],
+            "title": "bug: account balance shows negative after pending transactions are cancelled",
+            "body": "When a pending transaction is cancelled, the available balance calculation double-subtracts the amount — once when it was pending and again during the cancellation reconciliation step.",
+            "labels": ["bug"],
+        },
+        # Features
+        {
+            "title": "feature: add real-time WebSocket notifications for transaction alerts",
+            "body": "Currently, users must manually refresh the dashboard to see new transaction alerts. We need real-time push notifications via WebSocket so that high-value transactions and suspicious activity alerts appear instantly.",
+            "labels": ["enhancement"],
+        },
+        {
+            "title": "feature: add two-factor authentication for wire transfers over $10k",
+            "body": "High-value wire transfers should require a second authentication factor (TOTP or SMS) before submission. Currently any authenticated user can initiate transfers of any amount with just their session token.",
+            "labels": ["enhancement"],
+        },
+        {
+            "title": "feature: export account statements as PDF with custom date range",
+            "body": "Users need the ability to generate and download account statements as PDF documents for any custom date range. Currently only CSV export is supported and only for the current month.",
+            "labels": ["enhancement"],
+        },
+        # Docs
+        {
+            "title": "docs: add API authentication guide for third-party integrations",
+            "body": "We are missing documentation for how third-party services should authenticate against our API. Partners need a clear guide covering OAuth2 flows, API key management, and rate limiting policies.",
+            "labels": ["documentation"],
+        },
+        {
+            "title": "docs: document rate limiting policy for public API endpoints",
+            "body": "The public API has rate limits but they are undocumented. Partners are hitting 429 errors without understanding the limits. We need a clear page documenting per-endpoint rate limits and retry guidance.",
+            "labels": ["documentation"],
+        },
+        # Chores
+        {
+            "title": "chore: migrate legacy CommonJS bridge module to TypeScript ESM",
+            "body": "The legacy API bridge (src/legacy/bridge.js) is the last remaining CommonJS module. It should be migrated to TypeScript with ESM imports to align with the rest of the project and unblock tree-shaking.",
+            "labels": ["chore"],
+        },
+        {
+            "title": "chore: upgrade deprecated bcrypt dependency to v6",
+            "body": "The bcrypt package is pinned at v5.0.1 which has a known CVE. Version 6.x has been stable for months and includes native ARM64 support which would fix our CI build issues on Apple Silicon runners.",
+            "labels": ["chore"],
+        },
+        # Security
+        {
+            "title": "security: CSV export vulnerable to formula injection attacks",
+            "body": "The CSV export in the reporting module does not sanitize cell values. If a transaction description starts with =, +, -, or @, spreadsheet applications interpret it as a formula, enabling potential data exfiltration.",
+            "labels": ["security", "bug"],
+        },
+        {
+            "title": "security: API tokens not invalidated on password change",
+            "body": "When a user changes their password, existing API tokens remain valid. An attacker with a stolen token can continue accessing the API even after the user rotates their password.",
+            "labels": ["security", "bug"],
         },
     ]
 
+    # Pick 5 random issues from the pool
+    selected = random.sample(_ISSUE_POOL, min(5, len(_ISSUE_POOL)))
+
     seeded = 0
-    for seed in seeds:
+    for template in selected:
+        # Create a real GitHub issue
+        gh_issue = await github_service.create_issue(
+            title=template["title"],
+            body=template["body"],
+            labels=template["labels"],
+        )
+
+        if not gh_issue:
+            logger.warning(f"Failed to create GitHub issue: {template['title']}")
+            continue
+
+        issue_number = gh_issue["number"]
+        issue_url = gh_issue["html_url"]
+        issue_labels = [l["name"] if isinstance(l, dict) else l for l in gh_issue.get("labels", [])]
+
         inv = await investigation_store.create_investigation(
-            issue_number=seed["issue_number"],
-            issue_title=seed["issue_title"],
-            issue_body=seed["issue_body"],
-            issue_url=seed["issue_url"],
-            issue_labels=seed["issue_labels"],
+            issue_number=issue_number,
+            issue_title=template["title"],
+            issue_body=template["body"],
+            issue_url=issue_url,
+            issue_labels=issue_labels,
         )
 
         # Resolve playbook info so the badge shows on the card
         _issue_type, _playbook_id, _playbook_name = playbook_router.resolve_playbook(
-            seed["issue_title"], seed["issue_labels"]
+            template["title"], issue_labels
         )
         await investigation_store.update_investigation(
             inv.id,
