@@ -37,15 +37,14 @@ class EventBus:
         for q in dead:
             self._subscribers.remove(q)
 
-    async def subscribe(self) -> AsyncGenerator[str, None]:
-        """Subscribe to the event stream. Yields SSE-formatted strings."""
+    async def subscribe(self) -> AsyncGenerator[dict, None]:
+        """Subscribe to the event stream. Yields dicts for sse_starlette."""
         q: asyncio.Queue[SSEEvent] = asyncio.Queue(maxsize=256)
         self._subscribers.append(q)
         try:
             while True:
                 event = await q.get()
-                data = event.model_dump_json()
-                yield f"event: {event.event_type}\ndata: {data}\n\n"
+                yield {"event": event.event_type, "data": event.model_dump_json()}
         except asyncio.CancelledError:
             pass
         finally:
