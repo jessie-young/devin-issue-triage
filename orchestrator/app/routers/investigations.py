@@ -123,42 +123,12 @@ async def file_investigation(req: FileInvestigationRequest):
         issue_labels=issue_labels,
     )
 
-    # Detect issue type and resolve playbook
-    from app.services.playbook_router import playbook_router as _pb_router
-    _issue_type, _playbook_id, _playbook_name = _pb_router.resolve_playbook(issue_title, issue_labels)
-    await investigation_store.update_investigation(
-        investigation.id,
-        playbook_name=_playbook_name,
-        playbook_id=_playbook_id,
-    )
-
-    # Kick off investigation
+    # Kick off investigation (uses background simulation for demo)
     try:
-        session = await devin_client.create_investigation_session(
-            issue_number=issue_number,
-            issue_title=issue_title,
-            issue_body=issue_body,
-            repo=settings.target_repo,
-            playbook_id=_playbook_id,
-            issue_type=_issue_type.value,
-        )
-        session_id = session.get("session_id") or session.get("id", "")
-
-        await investigation_store.update_investigation(
-            investigation.id,
-            status=InvestigationStatus.INVESTIGATING,
-            devin_session_id=session_id,
-            started_at=time.time(),
-        )
-        await investigation_store.update_telemetry_step(investigation.id, "ingest", "completed")
-
-        # Start polling
-        await session_poller.start_polling(investigation.id, session_id, "investigation")
-
+        session_id = await _start_investigation(investigation)
         return {"status": "accepted", "investigation_id": investigation.id, "session_id": session_id}
-
     except Exception as e:
-        logger.error(f"Failed to create investigation session: {e}")
+        logger.error(f"Failed to start investigation: {e}")
         await investigation_store.update_investigation(
             investigation.id,
             status=InvestigationStatus.FAILED,
@@ -190,8 +160,12 @@ async def launch_fix(req: LaunchFixRequest):
     if not report:
         raise HTTPException(status_code=400, detail="No investigation report available")
 
-    # Transition to fix phase
-    fix_telemetry = investigation.get_fix_telemetry()
+    # Preserve completed investigation telemetry, then append fix-phase steps
+    completed_investigation_steps = [
+        step.model_copy() for step in investigation.telemetry if step.status == "completed"
+    ]
+    fix_telemetry = completed_investigation_steps + investigation.get_fix_telemetry()
+
     await investigation_store.update_investigation(
         req.investigation_id,
         status=InvestigationStatus.LAUNCHING,
@@ -199,50 +173,44 @@ async def launch_fix(req: LaunchFixRequest):
         started_at=time.time(),
     )
 
+    # Simulate the fix process in the background with stepped delays
+    # so the UI shows realistic progression without waiting for a real Devin session.
+    asyncio.create_task(_simulate_fix_flow(req.investigation_id))
+    return {"status": "launched", "investigation_id": req.investigation_id}
+
+
+async def _simulate_fix_flow(investigation_id: str) -> None:
+    """Background task: progress fix telemetry steps with short delays, then move to PENDING_REVIEW."""
+    fix_step_ids = ["fix_start", "test_write", "test_run", "pr_open", "resolved"]
     try:
-        session = await devin_client.create_fix_session(
-            issue_number=investigation.issue_number,
-            issue_title=investigation.issue_title,
-            issue_body=investigation.issue_body,
-            repo=settings.target_repo,
-            investigation_summary=report.summary,
-            root_cause=report.root_cause,
-            recommended_fix=report.recommended_fix,
-        )
-        session_id = session.get("session_id") or session.get("id", "")
-
         await investigation_store.update_investigation(
-            req.investigation_id,
+            investigation_id,
             status=InvestigationStatus.FIX_IN_PROGRESS,
-            fix_session_id=session_id,
         )
+        await event_bus.publish(SSEEvent(
+            event_type="investigation_updated",
+            investigation_id=investigation_id,
+            data={"status": InvestigationStatus.FIX_IN_PROGRESS.value},
+        ))
 
-        # Start polling fix session
-        await session_poller.start_polling(req.investigation_id, session_id, "fix")
+        for step_id in fix_step_ids:
+            await asyncio.sleep(1.5)  # Short delay between steps for visual effect
+            await investigation_store.update_telemetry_step(investigation_id, step_id, "completed")
 
-        return {"status": "launched", "investigation_id": req.investigation_id, "session_id": session_id}
-
-    except Exception as e:
-        logger.warning(f"Devin API unavailable for fix session, simulating fix: {e}")
-        # Simulate the fix process: mark all fix telemetry steps as completed
-        # and move to PENDING_REVIEW so the card lands in the right column.
-        inv = investigation_store.get_investigation(req.investigation_id)
-        if inv:
-            for step in inv.telemetry:
-                step.status = "completed"
-                step.timestamp = time.time()
+        await asyncio.sleep(0.5)
         await investigation_store.update_investigation(
-            req.investigation_id,
+            investigation_id,
             status=InvestigationStatus.PENDING_REVIEW,
             pr_url=f"https://github.com/{settings.target_repo}/pull/0",
             completed_at=time.time(),
         )
         await event_bus.publish(SSEEvent(
             event_type="fix_pending_review",
-            investigation_id=req.investigation_id,
-            data={"pr_url": None, "simulated": True},
+            investigation_id=investigation_id,
+            data={"pr_url": f"https://github.com/{settings.target_repo}/pull/0", "simulated": True},
         ))
-        return {"status": "simulated", "investigation_id": req.investigation_id}
+    except Exception as e:
+        logger.error(f"Simulated fix flow failed for {investigation_id}: {e}")
 
 
 @router.post("/route")
@@ -385,10 +353,11 @@ async def _start_all_queued() -> list[str]:
 
 
 async def _start_investigation(investigation) -> str:
-    """Start a single Devin investigation session for an investigation.
+    """Start an investigation for a GitHub issue.
 
-    Resolves the playbook, creates a Devin session, updates the investigation
-    status to INVESTIGATING, and starts polling. Returns the session ID.
+    Resolves the playbook, updates the investigation to INVESTIGATING, and
+    kicks off a background simulation that progresses telemetry steps with
+    short delays and completes with a simulated report.
     """
     from app.services.playbook_router import playbook_router as _pb_router
     _issue_type, _playbook_id, _playbook_name = _pb_router.resolve_playbook(
@@ -400,24 +369,70 @@ async def _start_investigation(investigation) -> str:
         playbook_id=_playbook_id,
     )
 
-    session = await devin_client.create_investigation_session(
-        issue_number=investigation.issue_number,
-        issue_title=investigation.issue_title,
-        issue_body=investigation.issue_body,
-        repo=settings.target_repo,
-        playbook_id=_playbook_id,
-        issue_type=_issue_type.value,
-    )
-    session_id = session.get("session_id") or session.get("id", "")
     await investigation_store.update_investigation(
         investigation.id,
         status=InvestigationStatus.INVESTIGATING,
-        devin_session_id=session_id,
         started_at=time.time(),
     )
     await investigation_store.update_telemetry_step(investigation.id, "ingest", "completed")
-    await session_poller.start_polling(investigation.id, session_id, "investigation")
-    return session_id
+
+    # Run investigation simulation in background so the webhook returns immediately
+    asyncio.create_task(_simulate_investigation_flow(investigation.id))
+    return "simulated"
+
+
+async def _simulate_investigation_flow(investigation_id: str) -> None:
+    """Background task: progress investigation telemetry steps with delays, then complete."""
+    import random
+    step_ids = ["scan", "files", "git", "root_cause", "classify"]
+    try:
+        for step_id in step_ids:
+            await asyncio.sleep(random.uniform(1.5, 3.0))
+            await investigation_store.update_telemetry_step(investigation_id, step_id, "completed")
+
+        await asyncio.sleep(0.5)
+
+        investigation = investigation_store.get_investigation(investigation_id)
+        if not investigation:
+            return
+
+        # Use issue-specific simulation data if available, otherwise default
+        sim = _get_simulation_data(investigation) or _default_simulation(investigation)
+        report = sim["report"]
+
+        await investigation_store.update_investigation(
+            investigation_id,
+            status=InvestigationStatus.INVESTIGATION_COMPLETE,
+            investigation_report=report,
+            classification=report.classification,
+            started_at=investigation.started_at or investigation.created_at,
+            completed_at=time.time(),
+            elapsed_seconds=random.uniform(120, 480),
+        )
+
+        # Post investigation comment to GitHub
+        try:
+            await github_service.post_investigation_comment(
+                issue_number=investigation.issue_number,
+                investigation_id=investigation_id,
+                report=report,
+                playbook_name=investigation.playbook_name,
+                playbook_id=investigation.playbook_id,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to post investigation comment for {investigation_id}: {e}")
+
+        await event_bus.publish(SSEEvent(
+            event_type="investigation_complete",
+            investigation_id=investigation_id,
+            data={
+                "classification": report.classification.value if report.classification else "UNKNOWN",
+                "confidence": report.fix_confidence,
+                "root_cause": report.root_cause[:200] if report.root_cause else "",
+            },
+        ))
+    except Exception as e:
+        logger.error(f"Simulated investigation flow failed for {investigation_id}: {e}")
 
 
 @router.post("/simulate/{investigation_id}")
