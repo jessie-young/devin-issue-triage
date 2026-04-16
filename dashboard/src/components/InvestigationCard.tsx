@@ -152,7 +152,7 @@ export function InvestigationCard({ investigation, onLaunch, compact }: Investig
         {investigation.playbook_name && (
           investigation.playbook_id ? (
             <a
-              href={`https://app.devin.ai/playbooks/${investigation.playbook_id}`}
+              href={`https://app.devin.ai/org/${import.meta.env.VITE_DEVIN_ORG_SLUG || 'jessie-young-demo'}/settings/playbooks/${investigation.playbook_id.replace('playbook-', '')}`}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 text-xs text-app-text-muted hover:text-app-primary bg-app-panel px-1.5 py-0.5 rounded"

@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     poll_interval_seconds: int = 8
     max_poll_duration_seconds: int = 3600
 
+    # Devin webapp
+    devin_org_slug: str = "jessie-young-demo"
+
     # App
     app_title: str = "Devin Issue Triage Orchestrator"
     debug: bool = False
