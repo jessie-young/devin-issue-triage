@@ -277,13 +277,13 @@ async def _simulate_fix_flow(investigation_id: str) -> None:
         await investigation_store.update_investigation(
             investigation_id,
             status=InvestigationStatus.PENDING_REVIEW,
-            pr_url=f"https://github.com/{settings.target_repo}/pull/0",
+            pr_url=None,  # No real PR in simulation mode
             completed_at=time.time(),
         )
         await event_bus.publish(SSEEvent(
             event_type="fix_pending_review",
             investigation_id=investigation_id,
-            data={"pr_url": f"https://github.com/{settings.target_repo}/pull/0", "simulated": True},
+            data={"pr_url": None, "simulated": True},
         ))
     except Exception as e:
         logger.error(f"Simulated fix flow failed for {investigation_id}: {e}")

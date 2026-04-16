@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Optional
 
@@ -140,6 +141,32 @@ class DevinClient:
         """Build organization-scoped API URL."""
         return f"{self._base_url}/organizations/{self._org_id}{path}"
 
+    async def _create_session_with_retry(
+        self, payload: dict, max_retries: int = 3,
+    ) -> dict:
+        """Create a session with exponential backoff on 429 rate limits."""
+        for attempt in range(max_retries + 1):
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(
+                    self._org_url("/sessions"),
+                    headers=self._headers(),
+                    json=payload,
+                )
+                if resp.status_code == 429 and attempt < max_retries:
+                    wait = 2 ** attempt * 5  # 5s, 10s, 20s
+                    logger.warning(
+                        "Devin API 429 rate limited (attempt %d/%d), retrying in %ds",
+                        attempt + 1, max_retries + 1, wait,
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+                resp.raise_for_status()
+                return resp.json()
+        # Should not reach here, but just in case
+        raise httpx.HTTPStatusError(
+            "Max retries exceeded for 429", request=resp.request, response=resp  # type: ignore[possibly-undefined]
+        )
+
     async def create_investigation_session(
         self,
         issue_number: int,
@@ -162,14 +189,7 @@ class DevinClient:
         if playbook_id:
             payload["playbook_id"] = playbook_id
 
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                self._org_url("/sessions"),
-                headers=self._headers(),
-                json=payload,
-            )
-            resp.raise_for_status()
-            return resp.json()
+        return await self._create_session_with_retry(payload)
 
     async def create_fix_session(
         self,
@@ -197,14 +217,7 @@ class DevinClient:
         if playbook_id:
             payload["playbook_id"] = playbook_id
 
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                self._org_url("/sessions"),
-                headers=self._headers(),
-                json=payload,
-            )
-            resp.raise_for_status()
-            return resp.json()
+        return await self._create_session_with_retry(payload)
 
     async def get_session(self, session_id: str) -> dict:
         """Get session details including status."""
