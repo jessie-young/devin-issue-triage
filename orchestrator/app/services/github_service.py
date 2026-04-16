@@ -109,7 +109,10 @@ class GitHubService:
 
         # Build playbook line with link if ID is available
         if playbook_name and playbook_id:
-            playbook_line = f"[{playbook_name}](https://app.devin.ai/playbooks/{playbook_id})"
+            # Strip "playbook-" prefix for the webapp URL
+            bare_id = playbook_id.removeprefix("playbook-")
+            playbook_url = f"https://app.devin.ai/org/{settings.devin_org_slug}/settings/playbooks/{bare_id}"
+            playbook_line = f"[{playbook_name}]({playbook_url})"
         elif playbook_name:
             playbook_line = playbook_name
         else:
