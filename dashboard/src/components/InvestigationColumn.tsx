@@ -7,7 +7,7 @@ interface InvestigationColumnProps {
   icon: React.ReactNode;
   accentColor: string;
   onLaunch?: (investigationId: string) => void;
-  onRoute?: (investigationId: string, action: string) => void;
+  onStartAll?: () => void;
   compact?: boolean;
   emptyText?: string;
 }
@@ -18,7 +18,7 @@ export function InvestigationColumn({
   icon,
   accentColor,
   onLaunch,
-  onRoute,
+  onStartAll,
   compact,
   emptyText = 'No issues',
 }: InvestigationColumnProps) {
@@ -30,6 +30,16 @@ export function InvestigationColumn({
         <span className={`text-sm font-semibold ${accentColor}`}>
           {title}
         </span>
+        {onStartAll && investigations.length > 0 && (
+          <button
+            onClick={onStartAll}
+            className="ml-2 px-2.5 py-1 rounded-md text-xs font-semibold
+              bg-app-primary text-white hover:bg-app-primary-hover
+              transition-all duration-200 shadow-sm"
+          >
+            Start All
+          </button>
+        )}
         <span className="ml-auto text-xs font-medium text-app-text-muted bg-app-panel px-2 py-0.5 rounded-full">
           {investigations.length}
         </span>
@@ -47,7 +57,6 @@ export function InvestigationColumn({
               key={m.id}
               investigation={m}
               onLaunch={onLaunch}
-              onRoute={onRoute}
               compact={compact}
             />
           ))

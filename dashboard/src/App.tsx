@@ -1,9 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { Inbox, Search, CheckCircle2, RotateCcw } from 'lucide-react';
 import { useIssueTriage } from './hooks/useIssueTriage';
 import { HeaderBar } from './components/HeaderBar';
 import { InvestigationColumn } from './components/InvestigationColumn';
-import { TelemetryStrip } from './components/TelemetryStrip';
 import { FileInvestigationInput } from './components/FileInvestigationInput';
 import { MetricsPanel } from './components/MetricsPanel';
 import type { Investigation } from './types/investigation';
@@ -16,10 +15,18 @@ function App() {
     telemetryLog,
     connected,
     launchFix,
-    routeInvestigation,
+    investigateAll,
     fileInvestigation,
     resetInvestigations,
   } = useIssueTriage();
+
+  // Log telemetry to browser console instead of showing in UI
+  useEffect(() => {
+    if (telemetryLog.length > 0) {
+      const latest = telemetryLog[telemetryLog.length - 1];
+      console.log(`[triage] ${latest.investigation_id}: ${latest.text}`);
+    }
+  }, [telemetryLog]);
 
   const [showMetrics, setShowMetrics] = useState(false);
   const investigationList = useMemo(() => Object.values(investigations), [investigations]);
@@ -108,6 +115,7 @@ function App() {
           investigations={queued}
           icon={<Inbox className="w-4 h-4 text-app-primary" />}
           accentColor="text-app-text-secondary"
+          onStartAll={investigateAll}
           compact
           emptyText="No issues queued"
         />
@@ -120,7 +128,6 @@ function App() {
             icon={<Search className="w-4 h-4 text-app-warning" />}
             accentColor="text-app-text-secondary"
             onLaunch={launchFix}
-            onRoute={routeInvestigation}
             emptyText="No active investigations"
           />
         </div>
@@ -135,9 +142,6 @@ function App() {
           emptyText="No resolved issues"
         />
       </div>
-
-      {/* Activity Log */}
-      <TelemetryStrip entries={telemetryLog} />
 
       {/* Metrics Modal */}
       {showMetrics && (

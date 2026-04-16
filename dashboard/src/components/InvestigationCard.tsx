@@ -1,11 +1,10 @@
 import { useState } from 'react';
-import { Play, CheckCircle2, Clock, AlertTriangle, XCircle, Circle, Loader2, ExternalLink, ChevronDown, ChevronUp, BookOpen, ArrowRight, Eye } from 'lucide-react';
+import { Play, CheckCircle2, Clock, AlertTriangle, XCircle, Circle, Loader2, ExternalLink, ChevronDown, ChevronUp, BookOpen } from 'lucide-react';
 import type { Investigation, InvestigationClassification, TelemetryStep } from '../types/investigation';
 
 interface InvestigationCardProps {
   investigation: Investigation;
   onLaunch?: (investigationId: string) => void;
-  onRoute?: (investigationId: string, action: string) => void;
   compact?: boolean;
 }
 
@@ -94,12 +93,11 @@ function ElapsedTimer({ startedAt, completedAt }: { startedAt: number | null; co
   );
 }
 
-export function InvestigationCard({ investigation, onLaunch, onRoute, compact }: InvestigationCardProps) {
+export function InvestigationCard({ investigation, onLaunch, compact }: InvestigationCardProps) {
   const [expanded, setExpanded] = useState(false);
   const isActive = ['INVESTIGATING', 'FIX_IN_PROGRESS', 'LAUNCHING'].includes(investigation.status);
   const isAutoFixReady = investigation.status === 'INVESTIGATION_COMPLETE' && investigation.classification === 'AUTO_FIX';
-  const isNeedsReview = investigation.status === 'INVESTIGATION_COMPLETE' && investigation.classification === 'NEEDS_REVIEW';
-  const isEscalate = investigation.status === 'INVESTIGATION_COMPLETE' && investigation.classification === 'ESCALATE';
+  const needsManualIntervention = investigation.status === 'INVESTIGATION_COMPLETE' && (investigation.classification === 'NEEDS_REVIEW' || investigation.classification === 'ESCALATE');
 
   const borderStyle = isActive ? 'border-app-primary/30 shadow-sm shadow-app-primary/5' :
     isAutoFixReady ? 'border-app-success/40 shadow-sm' :
@@ -181,74 +179,57 @@ export function InvestigationCard({ investigation, onLaunch, onRoute, compact }:
       {/* Investigation Report Summary */}
       {showDetails && investigation.investigation_report && (
         <div className="mt-3 p-3 rounded-lg bg-app-panel border border-app-border-light">
-          <div className="text-xs font-medium text-app-text-secondary mb-1">Root Cause</div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-medium text-app-text-secondary">Root Cause</span>
+            {investigation.investigation_report.fix_confidence > 0 && (
+              <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${
+                investigation.investigation_report.fix_confidence >= 80 ? 'bg-app-success-light text-app-success' :
+                investigation.investigation_report.fix_confidence >= 50 ? 'bg-app-warning-light text-app-warning' :
+                'bg-app-danger-light text-app-danger'
+              }`}>
+                {investigation.investigation_report.fix_confidence}% confidence
+              </span>
+            )}
+          </div>
           <p className="text-xs text-app-text-secondary line-clamp-3">
             {investigation.investigation_report.root_cause}
           </p>
-          {investigation.investigation_report.fix_confidence > 0 && (
-            <div className="flex items-center gap-2 mt-2">
-              <span className="text-xs text-app-text-muted">Confidence</span>
-              <div className="flex-1 h-1.5 bg-app-border rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all ${
-                    investigation.investigation_report.fix_confidence >= 80 ? 'bg-app-success' :
-                    investigation.investigation_report.fix_confidence >= 50 ? 'bg-app-warning' :
-                    'bg-app-danger'
-                  }`}
-                  style={{ width: `${investigation.investigation_report.fix_confidence}%` }}
-                />
-              </div>
-              <span className="text-xs font-medium text-app-text-secondary">
-                {investigation.investigation_report.fix_confidence}%
-              </span>
-            </div>
-          )}
         </div>
       )}
 
-      {/* Apply Fix button */}
-      {isAutoFixReady && onLaunch && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onLaunch(investigation.id); }}
-          className="mt-4 w-full py-2.5 rounded-lg text-sm font-semibold
-            bg-app-primary text-white
-            hover:bg-app-primary-hover
-            transition-all duration-200
-            flex items-center justify-center gap-2 shadow-sm"
-        >
-          <Play className="w-4 h-4" />
-          Apply Fix
-        </button>
-      )}
-
-      {/* Route to Team button for NEEDS_REVIEW */}
-      {isNeedsReview && onRoute && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onRoute(investigation.id, 'route'); }}
-          className="mt-4 w-full py-2.5 rounded-lg text-sm font-semibold
-            bg-app-warning text-white
-            hover:opacity-90
-            transition-all duration-200
-            flex items-center justify-center gap-2 shadow-sm"
-        >
-          <Eye className="w-4 h-4" />
-          Route to Team
-        </button>
-      )}
-
-      {/* Escalate button for ESCALATE */}
-      {isEscalate && onRoute && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onRoute(investigation.id, 'route'); }}
-          className="mt-4 w-full py-2.5 rounded-lg text-sm font-semibold
-            bg-app-danger text-white
-            hover:opacity-90
-            transition-all duration-200
-            flex items-center justify-center gap-2 shadow-sm"
-        >
-          <ArrowRight className="w-4 h-4" />
-          Escalate to Lead
-        </button>
+      {/* Action buttons row */}
+      {(isAutoFixReady || needsManualIntervention) && (
+        <div className="mt-3 flex justify-end">
+          {isAutoFixReady && onLaunch && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onLaunch(investigation.id); }}
+              className="px-3 py-1.5 rounded-md text-xs font-semibold
+                bg-app-primary text-white
+                hover:bg-app-primary-hover
+                transition-all duration-200
+                inline-flex items-center gap-1.5 shadow-sm"
+            >
+              <Play className="w-3.5 h-3.5" />
+              Apply Fix
+            </button>
+          )}
+          {needsManualIntervention && investigation.issue_url && (
+            <a
+              href={investigation.issue_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold
+                ${investigation.classification === 'ESCALATE' ? 'bg-app-danger' : 'bg-app-warning'} text-white
+                hover:opacity-90
+                transition-all duration-200
+                inline-flex items-center gap-1.5 shadow-sm`}
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              Investigate Manually
+            </a>
+          )}
+        </div>
       )}
 
       {/* PR link for completed investigations */}

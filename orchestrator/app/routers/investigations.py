@@ -320,6 +320,65 @@ async def ingest_all_issues():
     return {"status": "ok", "created": len(created), "investigation_ids": created}
 
 
+@router.post("/investigate-all")
+async def investigate_all_queued():
+    """Kick off investigations for ALL queued items at once.
+
+    Used during demos to move everything from Queue → In Progress in one click.
+    Each queued investigation gets a Devin session (or simulated investigation
+    if the Devin API is unavailable).
+    """
+    queued = investigation_store.get_investigations_by_status(InvestigationStatus.QUEUED)
+    if not queued:
+        return {"status": "ok", "started": 0, "investigation_ids": []}
+
+    started = []
+    for investigation in queued:
+        try:
+            # Resolve playbook
+            from app.services.playbook_router import playbook_router as _pb_router
+            _issue_type, _playbook_id, _playbook_name = _pb_router.resolve_playbook(
+                investigation.issue_title, investigation.issue_labels
+            )
+            await investigation_store.update_investigation(
+                investigation.id,
+                playbook_name=_playbook_name,
+                playbook_id=_playbook_id,
+            )
+
+            # Try real Devin session first
+            try:
+                session = await devin_client.create_investigation_session(
+                    issue_number=investigation.issue_number,
+                    issue_title=investigation.issue_title,
+                    issue_body=investigation.issue_body,
+                    repo=settings.target_repo,
+                    playbook_id=_playbook_id,
+                    issue_type=_issue_type.value,
+                )
+                session_id = session.get("session_id") or session.get("id", "")
+                await investigation_store.update_investigation(
+                    investigation.id,
+                    status=InvestigationStatus.INVESTIGATING,
+                    devin_session_id=session_id,
+                    started_at=time.time(),
+                )
+                await investigation_store.update_telemetry_step(investigation.id, "ingest", "completed")
+                await session_poller.start_polling(investigation.id, session_id, "investigation")
+                started.append(investigation.id)
+
+            except Exception as e:
+                logger.warning(f"Devin API unavailable for {investigation.id}, falling back to simulation: {e}")
+                # Fall back to simulated investigation
+                await simulate_investigation(investigation.id, post_comment=False)
+                started.append(investigation.id)
+
+        except Exception as e:
+            logger.error(f"Failed to start investigation {investigation.id}: {e}")
+
+    return {"status": "ok", "started": len(started), "investigation_ids": started}
+
+
 @router.post("/simulate/{investigation_id}")
 async def simulate_investigation(investigation_id: str, *, post_comment: bool = True):
     """Simulate an investigation completing (for demo/testing without Devin API).
@@ -379,88 +438,52 @@ async def simulate_investigation(investigation_id: str, *, post_comment: bool = 
 
 
 async def _seed_demo_investigations() -> int:
-    """Seed 4 pre-investigated items after reset so the board looks populated.
+    """Seed 5 pre-created issues into the Queue after reset.
 
-    These represent a realistic "initial backlog triage" — a mix of issue types
-    with completed investigations that the user can demo immediately. They use
-    hardcoded data (not GitHub) so they work regardless of repo state.
+    These match real GitHub issues (#58–#62) on demo-finserv-repo covering
+    all five issue categories (bug, feature, docs, chore, security). They
+    appear in the Queue column so the user can demo the full flow: queue →
+    investigate → classify → resolve.
+
+    Use the "Start All" button on the dashboard to kick off investigations.
     """
-    import random
-    from app.models.investigation import InvestigationReport, InvestigationClassification
     from app.services.playbook_router import playbook_router
 
     seeds = [
         {
-            "issue_number": 5,
-            "issue_title": "bug: fee calculation uses floating-point arithmetic on dollar amounts",
-            "issue_body": "Payment fees accumulate rounding errors due to floating-point math on monetary values.",
-            "issue_url": "https://github.com/jessie-young/demo-finserv-repo/issues/5",
+            "issue_number": 58,
+            "issue_title": "bug: pagination shows infinite loading spinner on last page",
+            "issue_body": "When navigating to the last page of transactions, the 'Load More' button keeps appearing and triggers infinite loading. The pagination hasMore flag incorrectly returns true even when there are no more pages to fetch.",
+            "issue_url": "https://github.com/jessie-young/demo-finserv-repo/issues/58",
             "issue_labels": ["bug"],
-            "report": InvestigationReport(
-                relevant_files=["src/modules/payments/service/payment.service.ts"],
-                git_history=["12cbaaa — Priya Patel — Nov 8 2025 — Add payment processing with fee calculation"],
-                root_cause="Payment fees use floating-point arithmetic on dollar amounts. JavaScript floating point causes rounding errors (0.1 + 0.2 === 0.30000000000000004). The calculateFees, splitPayment, and calculateRunningBalance methods all operate on floats instead of integer cents.",
-                complexity="medium",
-                fix_confidence=82,
-                classification=InvestigationClassification.AUTO_FIX,
-                summary="Floating-point arithmetic on monetary amounts causes fee calculation rounding errors at scale.",
-                recommended_fix="Convert all monetary calculations to use integer cents. Multiply by 100 at input boundaries, perform all arithmetic in cents, divide by 100 only for display.",
-                related_issues=[9],
-            ),
         },
         {
-            "issue_number": 28,
-            "issue_title": "feature: add GraphQL API layer for mobile clients",
-            "issue_body": "Mobile team needs a GraphQL endpoint to reduce over-fetching and improve app performance.",
-            "issue_url": "https://github.com/jessie-young/demo-finserv-repo/issues/28",
+            "issue_number": 59,
+            "issue_title": "feature: add real-time WebSocket notifications for transaction alerts",
+            "issue_body": "Currently, users must manually refresh the dashboard to see new transaction alerts. We need real-time push notifications via WebSocket so that high-value transactions and suspicious activity alerts appear instantly.",
+            "issue_url": "https://github.com/jessie-young/demo-finserv-repo/issues/59",
             "issue_labels": ["enhancement"],
-            "report": InvestigationReport(
-                relevant_files=[],
-                git_history=[],
-                root_cause="This is a feature request, not a bug. Adding GraphQL would be a significant architectural addition requiring schema design, resolver implementation, and client updates.",
-                complexity="high",
-                fix_confidence=0,
-                classification=InvestigationClassification.ESCALATE,
-                summary="FEATURE REQUEST: GraphQL layer for mobile clients. Requires architectural decision and dedicated sprint planning.",
-                recommended_fix="This needs a tech design doc and team discussion. Consider Apollo Server with schema-first approach. Not suitable for automated fixing.",
-                related_issues=[],
-            ),
         },
         {
-            "issue_number": 3,
-            "issue_title": "security: JWT refresh tokens never invalidated after use",
-            "issue_body": "Old refresh tokens remain valid indefinitely, allowing replay attacks.",
-            "issue_url": "https://github.com/jessie-young/demo-finserv-repo/issues/3",
-            "issue_labels": ["bug", "security"],
-            "report": InvestigationReport(
-                relevant_files=["src/modules/auth/service/auth.service.ts"],
-                git_history=["f549345 — Sarah Chen — Oct 18 2025 — Implement auth module with JWT token management"],
-                root_cause="In AuthService.refreshAccessToken(), the old refresh token is never deleted from the refreshTokens set after being used. The comment even notes 'This line is missing' next to the commented-out delete call.",
-                complexity="low",
-                fix_confidence=97,
-                classification=InvestigationClassification.AUTO_FIX,
-                summary="JWT refresh token reuse vulnerability: old tokens are never invalidated, allowing replay attacks.",
-                recommended_fix="Add `refreshTokens.delete(refreshToken)` before generating the new token pair in the refreshAccessToken method.",
-                related_issues=[],
-            ),
+            "issue_number": 60,
+            "issue_title": "docs: add API authentication guide for third-party integrations",
+            "issue_body": "We are missing documentation for how third-party services should authenticate against our API. Partners have been asking for a clear guide covering OAuth2 flows, API key management, and rate limiting policies.",
+            "issue_url": "https://github.com/jessie-young/demo-finserv-repo/issues/60",
+            "issue_labels": ["documentation"],
         },
         {
-            "issue_number": 7,
-            "issue_title": "bug: error monitoring swallows TypeErrors as non-critical warnings",
-            "issue_body": "The global error handler treats TypeErrors as warnings, masking real production bugs in monitoring dashboards.",
-            "issue_url": "https://github.com/jessie-young/demo-finserv-repo/issues/7",
-            "issue_labels": ["bug"],
-            "report": InvestigationReport(
-                relevant_files=["src/shared/middleware/error-handler.ts"],
-                git_history=["b24dc2a — Sarah Chen — Oct 20 2025 — Add auth middleware, error handler, and rate limiter"],
-                root_cause="The global error handler treats all TypeError and ReferenceError instances as non-critical warnings. However, these error types can indicate real bugs in business logic. They should be logged as errors, not warnings.",
-                complexity="medium",
-                fix_confidence=72,
-                classification=InvestigationClassification.NEEDS_REVIEW,
-                summary="Error handler swallows TypeErrors as warnings, masking real production bugs in monitoring. Needs careful categorization strategy.",
-                recommended_fix="Remove the TypeError/ReferenceError special case, or add context-aware categorization that distinguishes between client-input errors and internal bugs.",
-                related_issues=[],
-            ),
+            "issue_number": 61,
+            "issue_title": "chore: migrate legacy CommonJS bridge module to TypeScript ESM",
+            "issue_body": "The legacy API bridge (src/legacy/bridge.js) is the last remaining CommonJS module in the codebase. It should be migrated to TypeScript with ESM imports to align with the rest of the project.",
+            "issue_url": "https://github.com/jessie-young/demo-finserv-repo/issues/61",
+            "issue_labels": ["chore"],
+        },
+        {
+            "issue_number": 62,
+            "issue_title": "security: CSV export vulnerable to formula injection attacks",
+            "issue_body": "The CSV export functionality in the reporting module does not sanitize cell values before writing them. If a transaction description starts with =, +, -, or @, spreadsheet applications interpret it as a formula.",
+            "issue_url": "https://github.com/jessie-young/demo-finserv-repo/issues/62",
+            "issue_labels": ["security", "bug"],
         },
     ]
 
@@ -474,28 +497,14 @@ async def _seed_demo_investigations() -> int:
             issue_labels=seed["issue_labels"],
         )
 
-        # Resolve playbook info
+        # Resolve playbook info so the badge shows on the card
         _issue_type, _playbook_id, _playbook_name = playbook_router.resolve_playbook(
             seed["issue_title"], seed["issue_labels"]
         )
-
-        # Complete all telemetry steps
-        for step in inv.telemetry:
-            await investigation_store.update_telemetry_step(
-                inv.id, step.id, "completed", f"Completed: {step.label}"
-            )
-
-        report = seed["report"]
         await investigation_store.update_investigation(
             inv.id,
-            status=InvestigationStatus.INVESTIGATION_COMPLETE,
-            investigation_report=report,
-            classification=report.classification,
             playbook_name=_playbook_name,
             playbook_id=_playbook_id,
-            started_at=inv.created_at - random.uniform(120, 480),
-            completed_at=inv.created_at,
-            elapsed_seconds=random.uniform(120, 480),
         )
         seeded += 1
 

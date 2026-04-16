@@ -222,32 +222,48 @@ export function useIssueTriage() {
     }
   }, [addLogEntry, fetchState]);
 
-  // Route a NEEDS_REVIEW or ESCALATE investigation
-  const routeInvestigation = useCallback(async (investigationId: string, action: string = 'route') => {
+  // Kick off all queued investigations at once
+  const investigateAll = useCallback(async () => {
     try {
-      // Optimistic update — immediately move to ROUTED
+      // Optimistic update — immediately mark all QUEUED as INVESTIGATING
       setInvestigations(prev => {
         const updated = { ...prev };
-        if (updated[investigationId]) {
-          updated[investigationId] = { ...updated[investigationId], status: 'ROUTED' as Investigation['status'] };
+        for (const id of Object.keys(updated)) {
+          if (updated[id].status === 'QUEUED') {
+            updated[id] = { ...updated[id], status: 'INVESTIGATING' as Investigation['status'] };
+          }
         }
         recalcStats(updated);
         return updated;
       });
 
-      const resp = await fetch(`${API_BASE}/investigations/route`, {
+      const resp = await fetch(`${API_BASE}/investigations/investigate-all`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ investigation_id: investigationId, action }),
       });
       if (!resp.ok) {
         const err = await resp.json();
-        throw new Error(err.detail || 'Route failed');
+        throw new Error(err.detail || 'Investigate all failed');
       }
-      addLogEntry(investigationId, `Investigation ${action === 'dismiss' ? 'dismissed' : 'routed to team'}`);
+      const data = await resp.json();
+      addLogEntry('SYSTEM', `Started ${data.started} investigations`);
       await fetchState();
+      // Poll for updates as investigations complete
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      let polls = 0;
+      pollIntervalRef.current = setInterval(async () => {
+        polls++;
+        try {
+          await fetchState();
+        } catch {
+          // Network error during poll — will retry on next tick
+        }
+        if (polls >= 20) {
+          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+        }
+      }, 3000);
     } catch (err) {
-      addLogEntry(investigationId, `Route error: ${err}`);
+      addLogEntry('SYSTEM', `Investigate all error: ${err}`);
       await fetchState();
     }
   }, [addLogEntry, fetchState, recalcStats]);
@@ -285,7 +301,7 @@ export function useIssueTriage() {
     telemetryLog,
     connected,
     launchFix,
-    routeInvestigation,
+    investigateAll,
     fileInvestigation,
     resetInvestigations,
   };
