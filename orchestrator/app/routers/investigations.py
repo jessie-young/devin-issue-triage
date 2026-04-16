@@ -242,17 +242,18 @@ async def launch_fix(req: LaunchFixRequest):
             await session_poller.start_polling(req.investigation_id, session_id, phase="fix")
             return {"status": "launched", "investigation_id": req.investigation_id, "session_id": session_id}
         except Exception as e:
-            logger.warning(
-                "Failed to create real Devin fix session for %s, falling back to simulation: %s",
+            logger.error(
+                "Failed to create Devin fix session for %s: %s",
                 req.investigation_id, e,
             )
-            # Fall through to simulation
+            await investigation_store.update_investigation(
+                req.investigation_id,
+                status=InvestigationStatus.FAILED,
+                error=f"Failed to create Devin fix session: {e}",
+            )
+            raise HTTPException(status_code=502, detail=f"Failed to create Devin fix session: {e}")
 
-    # Fallback: simulate the fix process in the background
-    task = asyncio.create_task(_simulate_fix_flow(req.investigation_id))
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
-    return {"status": "launched", "investigation_id": req.investigation_id}
+    raise HTTPException(status_code=503, detail="Devin API is not configured")
 
 
 async def _simulate_fix_flow(investigation_id: str) -> None:
@@ -437,8 +438,7 @@ async def _start_investigation(investigation) -> str:
     """Start an investigation for a GitHub issue.
 
     Resolves the playbook, updates the investigation to INVESTIGATING, and
-    either creates a real Devin session (when the API is configured) or falls
-    back to the background simulation for demo purposes.
+    creates a real Devin session.  Requires the Devin API to be configured.
     """
     from app.services.playbook_router import playbook_router as _pb_router
     _issue_type, _playbook_id, _playbook_name = _pb_router.resolve_playbook(
@@ -457,46 +457,46 @@ async def _start_investigation(investigation) -> str:
     )
     await investigation_store.update_telemetry_step(investigation.id, "ingest", "completed")
 
-    # If the Devin API is configured, create a real session and poll it
-    if devin_client.is_configured:
-        try:
-            session_data = await devin_client.create_investigation_session(
-                issue_number=investigation.issue_number,
-                issue_title=investigation.issue_title,
-                issue_body=investigation.issue_body or "",
-                repo=settings.target_repo,
-                playbook_id=_playbook_id,
-                issue_type=_issue_type,
-            )
-            session_id = session_data.get("session_id", "")
-            session_url = session_data.get("url", "")
-            logger.info(
-                "Created real Devin session %s for investigation %s: %s",
-                session_id, investigation.id, session_url,
-            )
+    if not devin_client.is_configured:
+        raise RuntimeError("Devin API is not configured — cannot start investigation")
 
-            # Store the session URL on the investigation for linking in the UI
-            await investigation_store.update_investigation(
-                investigation.id,
-                devin_session_id=session_id,
-                devin_session_url=session_url,
-            )
+    try:
+        session_data = await devin_client.create_investigation_session(
+            issue_number=investigation.issue_number,
+            issue_title=investigation.issue_title,
+            issue_body=investigation.issue_body or "",
+            repo=settings.target_repo,
+            playbook_id=_playbook_id,
+            issue_type=_issue_type,
+        )
+        session_id = session_data.get("session_id", "")
+        session_url = session_data.get("url", "")
+        logger.info(
+            "Created real Devin session %s for investigation %s: %s",
+            session_id, investigation.id, session_url,
+        )
 
-            # Start background polling of the session
-            await session_poller.start_polling(investigation.id, session_id, phase="investigation")
-            return session_id
-        except Exception as e:
-            logger.warning(
-                "Failed to create real Devin session for %s, falling back to simulation: %s",
-                investigation.id, e,
-            )
-            # Fall through to simulation
+        # Store the session URL on the investigation for linking in the UI
+        await investigation_store.update_investigation(
+            investigation.id,
+            devin_session_id=session_id,
+            devin_session_url=session_url,
+        )
 
-    # Fallback: run investigation simulation in background
-    task = asyncio.create_task(_simulate_investigation_flow(investigation.id))
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
-    return "simulated"
+        # Start background polling of the session
+        await session_poller.start_polling(investigation.id, session_id, phase="investigation")
+        return session_id
+    except Exception as e:
+        logger.error(
+            "Failed to create Devin investigation session for %s: %s",
+            investigation.id, e,
+        )
+        await investigation_store.update_investigation(
+            investigation.id,
+            status=InvestigationStatus.FAILED,
+            error=f"Failed to create Devin session: {e}",
+        )
+        raise
 
 
 async def _simulate_investigation_flow(investigation_id: str) -> None:
