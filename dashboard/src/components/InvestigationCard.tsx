@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Play, CheckCircle2, Clock, AlertTriangle, XCircle, Circle, Loader2, ExternalLink, ChevronDown, ChevronUp, BookOpen } from 'lucide-react';
+import { Play, CheckCircle2, Clock, AlertTriangle, XCircle, Circle, Loader2, ExternalLink, ChevronDown, ChevronUp, BookOpen, ArrowRight, Eye } from 'lucide-react';
 import type { Investigation, InvestigationClassification, TelemetryStep } from '../types/investigation';
 
 interface InvestigationCardProps {
   investigation: Investigation;
   onLaunch?: (investigationId: string) => void;
+  onRoute?: (investigationId: string, action: string) => void;
   compact?: boolean;
 }
 
@@ -93,10 +94,12 @@ function ElapsedTimer({ startedAt, completedAt }: { startedAt: number | null; co
   );
 }
 
-export function InvestigationCard({ investigation, onLaunch, compact }: InvestigationCardProps) {
+export function InvestigationCard({ investigation, onLaunch, onRoute, compact }: InvestigationCardProps) {
   const [expanded, setExpanded] = useState(false);
   const isActive = ['INVESTIGATING', 'FIX_IN_PROGRESS', 'LAUNCHING'].includes(investigation.status);
   const isAutoFixReady = investigation.status === 'INVESTIGATION_COMPLETE' && investigation.classification === 'AUTO_FIX';
+  const isNeedsReview = investigation.status === 'INVESTIGATION_COMPLETE' && investigation.classification === 'NEEDS_REVIEW';
+  const isEscalate = investigation.status === 'INVESTIGATION_COMPLETE' && investigation.classification === 'ESCALATE';
 
   const borderStyle = isActive ? 'border-app-primary/30 shadow-sm shadow-app-primary/5' :
     isAutoFixReady ? 'border-app-success/40 shadow-sm' :
@@ -215,6 +218,36 @@ export function InvestigationCard({ investigation, onLaunch, compact }: Investig
         >
           <Play className="w-4 h-4" />
           Apply Fix
+        </button>
+      )}
+
+      {/* Route to Team button for NEEDS_REVIEW */}
+      {isNeedsReview && onRoute && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onRoute(investigation.id, 'route'); }}
+          className="mt-4 w-full py-2.5 rounded-lg text-sm font-semibold
+            bg-app-warning text-white
+            hover:opacity-90
+            transition-all duration-200
+            flex items-center justify-center gap-2 shadow-sm"
+        >
+          <Eye className="w-4 h-4" />
+          Route to Team
+        </button>
+      )}
+
+      {/* Escalate button for ESCALATE */}
+      {isEscalate && onRoute && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onRoute(investigation.id, 'route'); }}
+          className="mt-4 w-full py-2.5 rounded-lg text-sm font-semibold
+            bg-app-danger text-white
+            hover:opacity-90
+            transition-all duration-200
+            flex items-center justify-center gap-2 shadow-sm"
+        >
+          <ArrowRight className="w-4 h-4" />
+          Escalate to Lead
         </button>
       )}
 

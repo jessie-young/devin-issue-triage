@@ -164,6 +164,16 @@ export function useIssueTriage() {
   // Launch a fix
   const launchFix = useCallback(async (investigationId: string) => {
     try {
+      // Optimistic update — immediately show status change on the card
+      setInvestigations(prev => {
+        const updated = { ...prev };
+        if (updated[investigationId]) {
+          updated[investigationId] = { ...updated[investigationId], status: 'LAUNCHING' as Investigation['status'] };
+        }
+        recalcStats(updated);
+        return updated;
+      });
+
       const resp = await fetch(`${API_BASE}/investigations/launch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -175,7 +185,7 @@ export function useIssueTriage() {
       }
       addLogEntry(investigationId, 'Apply Fix initiated');
       await fetchState();
-      // Poll for updates during simulated fix (every 2s for 20s)
+      // Poll for updates during fix (every 3s for 60s)
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
       let polls = 0;
       pollIntervalRef.current = setInterval(async () => {
@@ -185,15 +195,17 @@ export function useIssueTriage() {
         } catch {
           // Network error during poll — will retry on next tick
         }
-        if (polls >= 10) {
+        if (polls >= 20) {
           if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
           pollIntervalRef.current = null;
         }
-      }, 2000);
+      }, 3000);
     } catch (err) {
       addLogEntry(investigationId, `Launch error: ${err}`);
+      // Revert optimistic update on error
+      await fetchState();
     }
-  }, [addLogEntry, fetchState]);
+  }, [addLogEntry, fetchState, recalcStats]);
 
   // Reset all investigations (clear the board)
   const resetInvestigations = useCallback(async () => {
@@ -209,6 +221,36 @@ export function useIssueTriage() {
       addLogEntry('SYSTEM', `Reset error: ${err}`);
     }
   }, [addLogEntry, fetchState]);
+
+  // Route a NEEDS_REVIEW or ESCALATE investigation
+  const routeInvestigation = useCallback(async (investigationId: string, action: string = 'route') => {
+    try {
+      // Optimistic update — immediately move to ROUTED
+      setInvestigations(prev => {
+        const updated = { ...prev };
+        if (updated[investigationId]) {
+          updated[investigationId] = { ...updated[investigationId], status: 'ROUTED' as Investigation['status'] };
+        }
+        recalcStats(updated);
+        return updated;
+      });
+
+      const resp = await fetch(`${API_BASE}/investigations/route`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ investigation_id: investigationId, action }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.detail || 'Route failed');
+      }
+      addLogEntry(investigationId, `Investigation ${action === 'dismiss' ? 'dismissed' : 'routed to team'}`);
+      await fetchState();
+    } catch (err) {
+      addLogEntry(investigationId, `Route error: ${err}`);
+      await fetchState();
+    }
+  }, [addLogEntry, fetchState, recalcStats]);
 
   // File a manual investigation
   const fileInvestigation = useCallback(async (issueInput: string) => {
@@ -243,6 +285,7 @@ export function useIssueTriage() {
     telemetryLog,
     connected,
     launchFix,
+    routeInvestigation,
     fileInvestigation,
     resetInvestigations,
   };

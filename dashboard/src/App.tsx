@@ -16,6 +16,7 @@ function App() {
     telemetryLog,
     connected,
     launchFix,
+    routeInvestigation,
     fileInvestigation,
     resetInvestigations,
   } = useIssueTriage();
@@ -119,6 +120,7 @@ function App() {
             icon={<Search className="w-4 h-4 text-app-warning" />}
             accentColor="text-app-text-secondary"
             onLaunch={launchFix}
+            onRoute={routeInvestigation}
             emptyText="No active investigations"
           />
         </div>
