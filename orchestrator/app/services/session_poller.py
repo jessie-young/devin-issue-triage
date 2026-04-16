@@ -298,16 +298,17 @@ class SessionPoller:
                     investigation_id, step.id, "completed"
                 )
 
+        # Move to PENDING_REVIEW instead of RESOLVED — user must manually approve
         await investigation_store.update_investigation(
             investigation_id,
-            status=InvestigationStatus.RESOLVED,
+            status=InvestigationStatus.PENDING_REVIEW,
             pr_url=pr_url,
             completed_at=time.time(),
             elapsed_seconds=time.time() - (investigation.started_at or investigation.created_at),
         )
 
         await event_bus.publish(SSEEvent(
-            event_type="investigation_resolved",
+            event_type="fix_pending_review",
             investigation_id=investigation_id,
             data={"pr_url": pr_url},
         ))

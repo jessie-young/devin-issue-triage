@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from 'react';
-import { Inbox, Search, CheckCircle2, RotateCcw } from 'lucide-react';
+import { Inbox, Search, CheckCircle2, RotateCcw, Eye } from 'lucide-react';
 import { useIssueTriage } from './hooks/useIssueTriage';
 import { HeaderBar } from './components/HeaderBar';
 import { InvestigationColumn } from './components/InvestigationColumn';
@@ -16,6 +16,7 @@ function App() {
     connected,
     launchFix,
     investigateAll,
+    approveInvestigation,
     fileInvestigation,
     resetInvestigations,
   } = useIssueTriage();
@@ -43,6 +44,11 @@ function App() {
     () => investigationList.filter((inv: Investigation) =>
       ['INVESTIGATING', 'INVESTIGATION_COMPLETE', 'LAUNCHING', 'FIX_IN_PROGRESS'].includes(inv.status)
     ).sort(sortNewestFirst),
+    [investigationList]
+  );
+
+  const pendingReview = useMemo(
+    () => investigationList.filter((inv: Investigation) => inv.status === 'PENDING_REVIEW').sort(sortNewestFirst),
     [investigationList]
   );
 
@@ -107,9 +113,9 @@ function App() {
         </div>
       </div>
 
-      {/* Three-column layout */}
+      {/* Four-column layout */}
       <div className="flex-1 grid grid-cols-4 divide-x divide-app-border min-h-0">
-        {/* Left: Queue */}
+        {/* Queue */}
         <InvestigationColumn
           title="Queue"
           investigations={queued}
@@ -120,19 +126,27 @@ function App() {
           emptyText="No issues queued"
         />
 
-        {/* Center: In Progress (wider) */}
-        <div className="col-span-2 h-full min-h-0">
-          <InvestigationColumn
-            title="In Progress"
-            investigations={active}
-            icon={<Search className="w-4 h-4 text-app-warning" />}
-            accentColor="text-app-text-secondary"
-            onLaunch={launchFix}
-            emptyText="No active investigations"
-          />
-        </div>
+        {/* In Progress */}
+        <InvestigationColumn
+          title="In Progress"
+          investigations={active}
+          icon={<Search className="w-4 h-4 text-app-warning" />}
+          accentColor="text-app-text-secondary"
+          onLaunch={launchFix}
+          emptyText="No active investigations"
+        />
 
-        {/* Right: Resolved */}
+        {/* Pending Review */}
+        <InvestigationColumn
+          title="Pending Review"
+          investigations={pendingReview}
+          icon={<Eye className="w-4 h-4 text-purple-500" />}
+          accentColor="text-app-text-secondary"
+          onApprove={approveInvestigation}
+          emptyText="No items pending review"
+        />
+
+        {/* Resolved */}
         <InvestigationColumn
           title="Resolved"
           investigations={completed}

@@ -7,6 +7,7 @@ interface InvestigationColumnProps {
   icon: React.ReactNode;
   accentColor: string;
   onLaunch?: (investigationId: string) => void;
+  onApprove?: (investigationId: string) => void;
   onStartAll?: () => void;
   compact?: boolean;
   emptyText?: string;
@@ -18,6 +19,7 @@ export function InvestigationColumn({
   icon,
   accentColor,
   onLaunch,
+  onApprove,
   onStartAll,
   compact,
   emptyText = 'No issues',
@@ -57,6 +59,7 @@ export function InvestigationColumn({
               key={m.id}
               investigation={m}
               onLaunch={onLaunch}
+              onApprove={onApprove}
               compact={compact}
             />
           ))

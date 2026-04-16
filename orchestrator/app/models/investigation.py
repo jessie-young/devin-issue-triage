@@ -15,6 +15,7 @@ class InvestigationStatus(str, Enum):
     INVESTIGATION_COMPLETE = "INVESTIGATION_COMPLETE"
     LAUNCHING = "LAUNCHING"
     FIX_IN_PROGRESS = "FIX_IN_PROGRESS"
+    PENDING_REVIEW = "PENDING_REVIEW"  # Fix PR created, awaiting manual approval
     RESOLVED = "RESOLVED"
     ROUTED = "ROUTED"
     CLOSED = "CLOSED"

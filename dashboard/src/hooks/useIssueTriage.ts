@@ -87,7 +87,7 @@ export function useIssueTriage() {
         const newStatus = event.data.status as string | undefined;
         // If status changed to a terminal/phase state, do a full refetch for accurate data
         // Note: RESOLVED log entry is handled by the dedicated investigation_resolved event handler
-        if (newStatus && ['RESOLVED', 'ROUTED', 'CLOSED', 'FAILED', 'FIX_IN_PROGRESS', 'LAUNCHING'].includes(newStatus)) {
+        if (newStatus && ['RESOLVED', 'ROUTED', 'CLOSED', 'FAILED', 'FIX_IN_PROGRESS', 'LAUNCHING', 'PENDING_REVIEW'].includes(newStatus)) {
           fetchState();
         } else {
           setInvestigations(prev => {
@@ -141,6 +141,13 @@ export function useIssueTriage() {
         const event: SSEEvent = JSON.parse(e.data);
         const prUrl = event.data.pr_url as string | undefined;
         addLogEntry(event.investigation_id, `RESOLVED${prUrl ? ` — PR: ${prUrl}` : ''}`);
+        fetchState();
+      });
+
+      es.addEventListener('fix_pending_review', (e) => {
+        const event: SSEEvent = JSON.parse(e.data);
+        const prUrl = event.data.pr_url as string | undefined;
+        addLogEntry(event.investigation_id, `Fix PR ready for review${prUrl ? ` — ${prUrl}` : ''}`);
         fetchState();
       });
 
@@ -268,6 +275,36 @@ export function useIssueTriage() {
     }
   }, [addLogEntry, fetchState, recalcStats]);
 
+  // Approve a PENDING_REVIEW investigation and move to Resolved
+  const approveInvestigation = useCallback(async (investigationId: string) => {
+    try {
+      // Optimistic update
+      setInvestigations(prev => {
+        const updated = { ...prev };
+        if (updated[investigationId]) {
+          updated[investigationId] = { ...updated[investigationId], status: 'RESOLVED' as Investigation['status'] };
+        }
+        recalcStats(updated);
+        return updated;
+      });
+
+      const resp = await fetch(`${API_BASE}/investigations/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ investigation_id: investigationId }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.detail || 'Approve failed');
+      }
+      addLogEntry(investigationId, 'Investigation approved and resolved');
+      await fetchState();
+    } catch (err) {
+      addLogEntry(investigationId, `Approve error: ${err}`);
+      await fetchState();
+    }
+  }, [addLogEntry, fetchState, recalcStats]);
+
   // File a manual investigation
   const fileInvestigation = useCallback(async (issueInput: string) => {
     try {
@@ -302,6 +339,7 @@ export function useIssueTriage() {
     connected,
     launchFix,
     investigateAll,
+    approveInvestigation,
     fileInvestigation,
     resetInvestigations,
   };

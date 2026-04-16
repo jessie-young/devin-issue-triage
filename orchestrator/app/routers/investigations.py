@@ -222,36 +222,13 @@ async def launch_fix(req: LaunchFixRequest):
         return {"status": "launched", "investigation_id": req.investigation_id, "session_id": session_id}
 
     except Exception as e:
-        logger.warning(f"Devin API unavailable, falling back to simulated launch: {e}")
-        # Fall back to simulated launch for demo
-        import asyncio as _asyncio
-
-        async def _simulate_fix():
-            try:
-                await _asyncio.sleep(0.5)
-                await investigation_store.update_investigation(req.investigation_id, status=InvestigationStatus.FIX_IN_PROGRESS)
-                fix_steps = ["fix_start", "test_write", "test_run", "pr_open", "resolved"]
-                labels = ["Writing Fix", "Writing Regression Test", "Running Test Suite", "Opening PR", "RESOLVED"]
-                for step_id, label in zip(fix_steps, labels):
-                    await _asyncio.sleep(1.5)
-                    await investigation_store.update_telemetry_step(req.investigation_id, step_id, "completed", f"Simulated: {label}")
-                # Use issue URL for demo — a real Devin session would create an actual PR
-                await investigation_store.update_investigation(
-                    req.investigation_id,
-                    status=InvestigationStatus.RESOLVED,
-                    pr_url=investigation.issue_url,
-                    completed_at=time.time(),
-                )
-            except Exception as exc:
-                logger.error(f"Simulated fix failed for {req.investigation_id}: {exc}")
-                await investigation_store.update_investigation(
-                    req.investigation_id,
-                    status=InvestigationStatus.FAILED,
-                    error=f"Simulated fix error: {exc}",
-                )
-
-        _asyncio.ensure_future(_simulate_fix())
-        return {"status": "launched_simulated", "investigation_id": req.investigation_id}
+        logger.error(f"Failed to create fix session: {e}")
+        await investigation_store.update_investigation(
+            req.investigation_id,
+            status=InvestigationStatus.FAILED,
+            error=str(e),
+        )
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/route")
@@ -291,6 +268,40 @@ async def route_investigation(req: RouteRequest):
     )
 
     return {"status": "routed", "investigation_id": req.investigation_id, "action": req.action}
+
+
+class ApproveRequest(BaseModel):
+    investigation_id: str
+
+
+@router.post("/approve")
+async def approve_investigation(req: ApproveRequest):
+    """Approve a PENDING_REVIEW investigation and move it to Resolved."""
+    investigation = investigation_store.get_investigation(req.investigation_id)
+    if not investigation:
+        raise HTTPException(status_code=404, detail="Investigation not found")
+
+    if investigation.status != InvestigationStatus.PENDING_REVIEW:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Investigation is in state {investigation.status.value}, expected PENDING_REVIEW",
+        )
+
+    await investigation_store.update_investigation(
+        req.investigation_id,
+        status=InvestigationStatus.RESOLVED,
+        completed_at=time.time(),
+    )
+
+    await event_bus.publish(
+        SSEEvent(
+            event_type="investigation_resolved",
+            investigation_id=req.investigation_id,
+            data={"action": "approved"},
+        )
+    )
+
+    return {"status": "resolved", "investigation_id": req.investigation_id}
 
 
 @router.post("/ingest-all")
@@ -346,32 +357,24 @@ async def investigate_all_queued():
                 playbook_id=_playbook_id,
             )
 
-            # Try real Devin session first
-            try:
-                session = await devin_client.create_investigation_session(
-                    issue_number=investigation.issue_number,
-                    issue_title=investigation.issue_title,
-                    issue_body=investigation.issue_body,
-                    repo=settings.target_repo,
-                    playbook_id=_playbook_id,
-                    issue_type=_issue_type.value,
-                )
-                session_id = session.get("session_id") or session.get("id", "")
-                await investigation_store.update_investigation(
-                    investigation.id,
-                    status=InvestigationStatus.INVESTIGATING,
-                    devin_session_id=session_id,
-                    started_at=time.time(),
-                )
-                await investigation_store.update_telemetry_step(investigation.id, "ingest", "completed")
-                await session_poller.start_polling(investigation.id, session_id, "investigation")
-                started.append(investigation.id)
-
-            except Exception as e:
-                logger.warning(f"Devin API unavailable for {investigation.id}, falling back to simulation: {e}")
-                # Fall back to simulated investigation
-                await simulate_investigation(investigation.id, post_comment=False)
-                started.append(investigation.id)
+            session = await devin_client.create_investigation_session(
+                issue_number=investigation.issue_number,
+                issue_title=investigation.issue_title,
+                issue_body=investigation.issue_body,
+                repo=settings.target_repo,
+                playbook_id=_playbook_id,
+                issue_type=_issue_type.value,
+            )
+            session_id = session.get("session_id") or session.get("id", "")
+            await investigation_store.update_investigation(
+                investigation.id,
+                status=InvestigationStatus.INVESTIGATING,
+                devin_session_id=session_id,
+                started_at=time.time(),
+            )
+            await investigation_store.update_telemetry_step(investigation.id, "ingest", "completed")
+            await session_poller.start_polling(investigation.id, session_id, "investigation")
+            started.append(investigation.id)
 
         except Exception as e:
             logger.error(f"Failed to start investigation {investigation.id}: {e}")

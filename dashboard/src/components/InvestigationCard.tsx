@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Play, CheckCircle2, Clock, AlertTriangle, XCircle, Circle, Loader2, ExternalLink, ChevronDown, ChevronUp, BookOpen } from 'lucide-react';
+import { Play, CheckCircle2, Clock, AlertTriangle, XCircle, Circle, Loader2, ExternalLink, ChevronDown, ChevronUp, BookOpen, Eye } from 'lucide-react';
 import type { Investigation, InvestigationClassification, TelemetryStep } from '../types/investigation';
 
 interface InvestigationCardProps {
   investigation: Investigation;
   onLaunch?: (investigationId: string) => void;
+  onApprove?: (investigationId: string) => void;
   compact?: boolean;
 }
 
@@ -33,6 +34,8 @@ function statusDot(status: string) {
       return <Loader2 className="w-3 h-3 text-app-warning animate-spin" />;
     case 'INVESTIGATION_COMPLETE':
       return <CheckCircle2 className="w-3 h-3 text-app-warning" />;
+    case 'PENDING_REVIEW':
+      return <Eye className="w-3 h-3 text-purple-500" />;
     case 'RESOLVED':
       return <CheckCircle2 className="w-3 h-3 text-app-success" />;
     case 'ROUTED':
@@ -93,11 +96,12 @@ function ElapsedTimer({ startedAt, completedAt }: { startedAt: number | null; co
   );
 }
 
-export function InvestigationCard({ investigation, onLaunch, compact }: InvestigationCardProps) {
+export function InvestigationCard({ investigation, onLaunch, onApprove, compact }: InvestigationCardProps) {
   const [expanded, setExpanded] = useState(false);
   const isActive = ['INVESTIGATING', 'FIX_IN_PROGRESS', 'LAUNCHING'].includes(investigation.status);
   const isAutoFixReady = investigation.status === 'INVESTIGATION_COMPLETE' && investigation.classification === 'AUTO_FIX';
   const needsManualIntervention = investigation.status === 'INVESTIGATION_COMPLETE' && (investigation.classification === 'NEEDS_REVIEW' || investigation.classification === 'ESCALATE');
+  const isPendingReview = investigation.status === 'PENDING_REVIEW';
 
   const borderStyle = isActive ? 'border-app-primary/30 shadow-sm shadow-app-primary/5' :
     isAutoFixReady ? 'border-app-success/40 shadow-sm' :
@@ -198,8 +202,8 @@ export function InvestigationCard({ investigation, onLaunch, compact }: Investig
       )}
 
       {/* Action buttons row */}
-      {(isAutoFixReady || needsManualIntervention) && (
-        <div className="mt-3 flex justify-end">
+      {(isAutoFixReady || needsManualIntervention || isPendingReview) && (
+        <div className="mt-3 flex items-center justify-end gap-2">
           {isAutoFixReady && onLaunch && (
             <button
               onClick={(e) => { e.stopPropagation(); onLaunch(investigation.id); }}
@@ -228,6 +232,39 @@ export function InvestigationCard({ investigation, onLaunch, compact }: Investig
               <ExternalLink className="w-3.5 h-3.5" />
               Investigate Manually
             </a>
+          )}
+          {isPendingReview && (
+            <>
+              {investigation.pr_url && (
+                <a
+                  href={investigation.pr_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="px-3 py-1.5 rounded-md text-xs font-semibold
+                    bg-app-panel text-app-text-secondary border border-app-border
+                    hover:bg-app-panel/80
+                    transition-all duration-200
+                    inline-flex items-center gap-1.5 shadow-sm"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  View PR
+                </a>
+              )}
+              {onApprove && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onApprove(investigation.id); }}
+                  className="px-3 py-1.5 rounded-md text-xs font-semibold
+                    bg-app-success text-white
+                    hover:bg-app-success/90
+                    transition-all duration-200
+                    inline-flex items-center gap-1.5 shadow-sm"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Approve & Resolve
+                </button>
+              )}
+            </>
           )}
         </div>
       )}
