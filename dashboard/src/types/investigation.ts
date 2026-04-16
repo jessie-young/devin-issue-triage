@@ -4,6 +4,7 @@ export type InvestigationStatus =
   | 'INVESTIGATION_COMPLETE'
   | 'LAUNCHING'
   | 'FIX_IN_PROGRESS'
+  | 'PENDING_REVIEW'
   | 'RESOLVED'
   | 'ROUTED'
   | 'CLOSED'

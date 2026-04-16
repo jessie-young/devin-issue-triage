@@ -1,9 +1,8 @@
-import { useMemo, useState } from 'react';
-import { Inbox, Search, CheckCircle2, RotateCcw } from 'lucide-react';
+import { useMemo, useState, useEffect } from 'react';
+import { Inbox, Search, CheckCircle2, RotateCcw, Eye } from 'lucide-react';
 import { useIssueTriage } from './hooks/useIssueTriage';
 import { HeaderBar } from './components/HeaderBar';
 import { InvestigationColumn } from './components/InvestigationColumn';
-import { TelemetryStrip } from './components/TelemetryStrip';
 import { FileInvestigationInput } from './components/FileInvestigationInput';
 import { MetricsPanel } from './components/MetricsPanel';
 import type { Investigation } from './types/investigation';
@@ -16,10 +15,19 @@ function App() {
     telemetryLog,
     connected,
     launchFix,
-    routeInvestigation,
+    investigateAll,
+    approveInvestigation,
     fileInvestigation,
     resetInvestigations,
   } = useIssueTriage();
+
+  // Log telemetry to browser console instead of showing in UI
+  useEffect(() => {
+    if (telemetryLog.length > 0) {
+      const latest = telemetryLog[telemetryLog.length - 1];
+      console.log(`[triage] ${latest.investigation_id}: ${latest.text}`);
+    }
+  }, [telemetryLog]);
 
   const [showMetrics, setShowMetrics] = useState(false);
   const investigationList = useMemo(() => Object.values(investigations), [investigations]);
@@ -36,6 +44,11 @@ function App() {
     () => investigationList.filter((inv: Investigation) =>
       ['INVESTIGATING', 'INVESTIGATION_COMPLETE', 'LAUNCHING', 'FIX_IN_PROGRESS'].includes(inv.status)
     ).sort(sortNewestFirst),
+    [investigationList]
+  );
+
+  const pendingReview = useMemo(
+    () => investigationList.filter((inv: Investigation) => inv.status === 'PENDING_REVIEW').sort(sortNewestFirst),
     [investigationList]
   );
 
@@ -100,32 +113,40 @@ function App() {
         </div>
       </div>
 
-      {/* Three-column layout */}
+      {/* Four-column layout */}
       <div className="flex-1 grid grid-cols-4 divide-x divide-app-border min-h-0">
-        {/* Left: Queue */}
+        {/* Queue */}
         <InvestigationColumn
           title="Queue"
           investigations={queued}
           icon={<Inbox className="w-4 h-4 text-app-primary" />}
           accentColor="text-app-text-secondary"
+          onStartAll={investigateAll}
           compact
           emptyText="No issues queued"
         />
 
-        {/* Center: In Progress (wider) */}
-        <div className="col-span-2 h-full min-h-0">
-          <InvestigationColumn
-            title="In Progress"
-            investigations={active}
-            icon={<Search className="w-4 h-4 text-app-warning" />}
-            accentColor="text-app-text-secondary"
-            onLaunch={launchFix}
-            onRoute={routeInvestigation}
-            emptyText="No active investigations"
-          />
-        </div>
+        {/* In Progress */}
+        <InvestigationColumn
+          title="In Progress"
+          investigations={active}
+          icon={<Search className="w-4 h-4 text-app-warning" />}
+          accentColor="text-app-text-secondary"
+          onLaunch={launchFix}
+          emptyText="No active investigations"
+        />
 
-        {/* Right: Resolved */}
+        {/* Pending Review */}
+        <InvestigationColumn
+          title="Pending Review"
+          investigations={pendingReview}
+          icon={<Eye className="w-4 h-4 text-purple-500" />}
+          accentColor="text-app-text-secondary"
+          onApprove={approveInvestigation}
+          emptyText="No items pending review"
+        />
+
+        {/* Resolved */}
         <InvestigationColumn
           title="Resolved"
           investigations={completed}
@@ -135,9 +156,6 @@ function App() {
           emptyText="No resolved issues"
         />
       </div>
-
-      {/* Activity Log */}
-      <TelemetryStrip entries={telemetryLog} />
 
       {/* Metrics Modal */}
       {showMetrics && (
