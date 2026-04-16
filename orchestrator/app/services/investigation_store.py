@@ -100,6 +100,20 @@ class InvestigationStore:
             data={"step_id": step_id, "status": status, "detail": detail},
         ))
 
+    async def clear_all(self) -> int:
+        """Clear all investigations and reset uptime. Returns count of cleared items."""
+        count = len(self._investigations)
+        self._investigations.clear()
+        self._uptime_start = time.time()
+
+        await event_bus.publish(SSEEvent(
+            event_type="investigations_cleared",
+            investigation_id="SYSTEM",
+            data={"cleared": count},
+        ))
+
+        return count
+
     def get_investigation(self, investigation_id: str) -> Optional[Investigation]:
         return self._investigations.get(investigation_id)
 

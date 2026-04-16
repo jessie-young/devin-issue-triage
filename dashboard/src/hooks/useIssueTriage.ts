@@ -143,6 +143,11 @@ export function useIssueTriage() {
         addLogEntry(event.investigation_id, `RESOLVED${prUrl ? ` — PR: ${prUrl}` : ''}`);
         fetchState();
       });
+
+      es.addEventListener('investigations_cleared', () => {
+        addLogEntry('SYSTEM', 'Dashboard reset — all investigations cleared');
+        fetchState();
+      });
     };
 
     connect();
@@ -190,6 +195,21 @@ export function useIssueTriage() {
     }
   }, [addLogEntry, fetchState]);
 
+  // Reset all investigations (clear the board)
+  const resetInvestigations = useCallback(async () => {
+    try {
+      const resp = await fetch(`${API_BASE}/investigations/reset`, { method: 'POST' });
+      if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.detail || 'Reset failed');
+      }
+      addLogEntry('SYSTEM', 'Dashboard reset requested');
+      await fetchState();
+    } catch (err) {
+      addLogEntry('SYSTEM', `Reset error: ${err}`);
+    }
+  }, [addLogEntry, fetchState]);
+
   // File a manual investigation
   const fileInvestigation = useCallback(async (issueInput: string) => {
     try {
@@ -224,5 +244,6 @@ export function useIssueTriage() {
     connected,
     launchFix,
     fileInvestigation,
+    resetInvestigations,
   };
 }
