@@ -29,13 +29,8 @@ function App() {
   const [showMetrics, setShowMetrics] = useState(false);
   const investigationList = useMemo(() => Object.values(investigations), [investigations]);
 
-  // Sort newest-first (highest created_at first) for most columns
+  // Sort newest-first (highest created_at first) for all columns
   const sortNewestFirst = (a: Investigation, b: Investigation) => (b.created_at ?? 0) - (a.created_at ?? 0);
-  // Sort by priority (highest first), then by created_at as tiebreaker
-  const sortByPriority = (a: Investigation, b: Investigation) => {
-    const pDiff = (b.priority ?? 50) - (a.priority ?? 50);
-    return pDiff !== 0 ? pDiff : (b.created_at ?? 0) - (a.created_at ?? 0);
-  };
 
   const queued = useMemo(
     () => investigationList.filter((inv: Investigation) => inv.status === 'QUEUED').sort(sortNewestFirst),
@@ -45,7 +40,7 @@ function App() {
   const active = useMemo(
     () => investigationList.filter((inv: Investigation) =>
       ['INVESTIGATING', 'INVESTIGATION_COMPLETE', 'LAUNCHING', 'FIX_IN_PROGRESS'].includes(inv.status)
-    ).sort(sortByPriority),
+    ).sort(sortNewestFirst),
     [investigationList]
   );
 
