@@ -206,8 +206,31 @@ class SessionPoller:
                             data={"text": preview},
                         ))
 
-                    # Check if session is finished
-                    if session_status in ("finished", "stopped", "failed"):
+                    # Check if session is finished (or suspended — Devin
+                    # sessions may be suspended when ACUs run out).
+                    is_terminal = session_status in (
+                        "finished", "stopped", "failed", "suspended",
+                    )
+
+                    # Also detect early completion: if Devin has already
+                    # produced a full investigation report in its messages
+                    # the session may stay "running" for a while before
+                    # transitioning.  We can handle the report immediately.
+                    report_ready = False
+                    if not is_terminal and phase == "investigation":
+                        full_text = "\n".join(
+                            m.get("content", "") or m.get("message", "") or ""
+                            for m in messages
+                            if isinstance(m, dict) and m.get("source") != "user"
+                        )
+                        if "INVESTIGATION REPORT" in full_text and "CLASSIFICATION" in full_text:
+                            report_ready = True
+                            logger.info(
+                                "Report detected in messages for %s while session still %s — completing early",
+                                investigation_id, session_status,
+                            )
+
+                    if is_terminal or report_ready:
                         if phase == "investigation":
                             await self._handle_investigation_complete(
                                 investigation_id, session_id, messages
