@@ -12,6 +12,7 @@ export function useIssueTriage() {
   const [uptimeStart, setUptimeStart] = useState<number>(Date.now() / 1000);
   const [telemetryLog, setTelemetryLog] = useState<TelemetryLogEntry[]>([]);
   const [connected, setConnected] = useState(false);
+  const [autoTriage, setAutoTriage] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -59,6 +60,14 @@ export function useIssueTriage() {
     } catch {
       // Will retry on reconnect
     }
+  }, []);
+
+  // Fetch auto-triage state on mount
+  useEffect(() => {
+    fetch(`${API_BASE}/investigations/auto-triage`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data) setAutoTriage(data.enabled); })
+      .catch(() => {});
   }, []);
 
   // Connect to SSE
@@ -148,6 +157,13 @@ export function useIssueTriage() {
         const event: SSEEvent = JSON.parse(e.data);
         const prUrl = event.data.pr_url as string | undefined;
         addLogEntry(event.investigation_id, `Fix PR ready for review${prUrl ? ` — ${prUrl}` : ''}`);
+        fetchState();
+      });
+
+      es.addEventListener('auto_triage_changed', (e) => {
+        const event: SSEEvent = JSON.parse(e.data);
+        setAutoTriage(event.data.enabled as boolean);
+        addLogEntry('SYSTEM', `Auto-triage ${event.data.enabled ? 'enabled' : 'disabled'}`);
         fetchState();
       });
 
@@ -305,6 +321,28 @@ export function useIssueTriage() {
     }
   }, [addLogEntry, fetchState, recalcStats]);
 
+  // Toggle auto-triage
+  const toggleAutoTriage = useCallback(async () => {
+    const newValue = !autoTriage;
+    setAutoTriage(newValue); // Optimistic update
+    try {
+      const resp = await fetch(`${API_BASE}/investigations/auto-triage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: newValue }),
+      });
+      if (!resp.ok) {
+        setAutoTriage(!newValue); // Revert on failure
+        const err = await resp.json();
+        throw new Error(err.detail || 'Toggle failed');
+      }
+      addLogEntry('SYSTEM', `Auto-triage ${newValue ? 'enabled' : 'disabled'}`);
+      await fetchState();
+    } catch (err) {
+      addLogEntry('SYSTEM', `Auto-triage toggle error: ${err}`);
+    }
+  }, [autoTriage, addLogEntry, fetchState]);
+
   // File a manual investigation
   const fileInvestigation = useCallback(async (issueInput: string) => {
     try {
@@ -337,8 +375,10 @@ export function useIssueTriage() {
     uptimeStart,
     telemetryLog,
     connected,
+    autoTriage,
     launchFix,
     investigateAll,
+    toggleAutoTriage,
     approveInvestigation,
     fileInvestigation,
     resetInvestigations,

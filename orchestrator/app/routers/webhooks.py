@@ -65,6 +65,15 @@ async def github_webhook(
     if not issue_number:
         raise HTTPException(status_code=400, detail="Missing issue number")
 
+    # Check if this issue already exists (e.g. seeded by Reset)
+    existing = investigation_store.get_investigation(f"FINSERV-{issue_number}")
+    if existing is not None:
+        logger.info(
+            "Issue #%s already exists as %s (status=%s) — skipping webhook processing",
+            issue_number, existing.id, existing.status.value,
+        )
+        return {"status": "skipped", "reason": "investigation already exists", "investigation_id": existing.id}
+
     # Create investigation
     investigation = await investigation_store.create_investigation(
         issue_number=issue_number,
@@ -88,43 +97,17 @@ async def github_webhook(
         playbook_id=playbook_id,
     )
 
-    # Kick off investigation
+    # If auto-triage is OFF, leave in Queue
+    if not investigation_store.auto_triage:
+        logger.info("Auto-triage OFF — issue #%s queued without starting investigation", issue_number)
+        return {"status": "queued", "investigation_id": investigation.id}
+
+    # Auto-triage is ON — kick off investigation immediately
     try:
-        session = await devin_client.create_investigation_session(
-            issue_number=issue_number,
-            issue_title=issue_title,
-            issue_body=issue_body,
-            repo=settings.target_repo,
-            playbook_id=playbook_id,
-            issue_type=issue_type.value,
-        )
-        session_id = session.get("session_id") or session.get("id", "")
-
-        await investigation_store.update_investigation(
-            investigation.id,
-            status=InvestigationStatus.INVESTIGATING,
-            devin_session_id=session_id,
-            started_at=time.time(),
-        )
-        await investigation_store.update_telemetry_step(investigation.id, "ingest", "completed")
-
-        # Start polling
-        await session_poller.start_polling(investigation.id, session_id, "investigation")
-
+        from app.routers.investigations import _start_investigation
+        session_id = await _start_investigation(investigation)
         return {"status": "accepted", "investigation_id": investigation.id, "session_id": session_id}
 
     except Exception as e:
-        logger.warning(f"Devin API unavailable, falling back to simulated investigation: {e}")
-        # Fall back to simulation
-        import asyncio as _asyncio
-        from app.routers.investigations import simulate_investigation as _sim_fn
-
-        async def _simulate_webhook_investigation():
-            try:
-                await _asyncio.sleep(1)
-                await _sim_fn(investigation.id)
-            except Exception as exc:
-                logger.error(f"Simulated investigation failed for {investigation.id}: {exc}")
-
-        _asyncio.ensure_future(_simulate_webhook_investigation())
-        return {"status": "accepted_simulated", "investigation_id": investigation.id}
+        logger.error(f"Failed to start investigation for issue #{issue_number}: {e}")
+        return {"status": "queued", "investigation_id": investigation.id, "error": str(e)}
