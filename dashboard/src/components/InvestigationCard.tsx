@@ -319,7 +319,19 @@ export function InvestigationCard({ investigation, onLaunch, onApprove, compact 
         </div>
       )}
 
-      {/* PR link removed — the View PR button in the actions row is sufficient */}
+      {/* PR link for resolved/completed investigations (not shown when isPendingReview since the actions row already has a View PR button) */}
+      {showDetails && investigation.pr_url && !isPendingReview && (
+        <a
+          href={investigation.pr_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-3 flex items-center gap-1.5 text-xs font-medium text-app-primary hover:text-app-primary-hover"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <ExternalLink className="w-3.5 h-3.5" />
+          View Pull Request
+        </a>
+      )}
 
       {/* Error display */}
       {investigation.error && (
