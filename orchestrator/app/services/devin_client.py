@@ -217,7 +217,12 @@ class DevinClient:
             return resp.json()
 
     async def get_session_messages(self, session_id: str) -> list[dict]:
-        """Get messages/output from a Devin session."""
+        """Get messages/output from a Devin session.
+
+        The v3 API returns ``{"items": [...], "end_cursor": ..., ...}``.
+        We normalise each item so downstream code can use ``msg["content"]``
+        or ``msg["message"]`` interchangeably.
+        """
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.get(
                 self._org_url(f"/sessions/{session_id}/messages"),
@@ -225,7 +230,18 @@ class DevinClient:
             )
             resp.raise_for_status()
             data = resp.json()
-            return data if isinstance(data, list) else data.get("messages", [])
+            # v3 wraps messages in {"items": [...]}
+            if isinstance(data, dict):
+                items = data.get("items", data.get("messages", []))
+            else:
+                items = data
+            # Normalise: v3 uses "message" key; poller expects "content" too
+            for item in items:
+                if "content" not in item and "message" in item:
+                    item["content"] = item["message"]
+                if "id" not in item and "event_id" in item:
+                    item["id"] = item["event_id"]
+            return items
 
     async def list_sessions(self, limit: int = 20) -> list[dict]:
         """List recent Devin sessions."""
