@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Play, CheckCircle2, Clock, AlertTriangle, XCircle, Circle, Loader2, ExternalLink, ChevronDown, ChevronUp, BookOpen, Eye } from 'lucide-react';
 import type { Investigation, InvestigationClassification, TelemetryStep } from '../types/investigation';
 
@@ -112,6 +112,31 @@ function ElapsedTimer({ startedAt, completedAt }: { startedAt: number | null; co
   );
 }
 
+function RootCauseBlock({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const toggle = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setOpen((v) => !v);
+  }, []);
+
+  return (
+    <div
+      className="p-3 rounded-lg bg-app-panel border border-app-border-light cursor-pointer select-none"
+      onClick={toggle}
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-app-text-secondary">Root Cause</span>
+        {open
+          ? <ChevronUp className="w-3.5 h-3.5 text-app-text-muted" />
+          : <ChevronDown className="w-3.5 h-3.5 text-app-text-muted" />}
+      </div>
+      <p className={`text-xs text-app-text-secondary mt-1 ${open ? '' : 'line-clamp-3'}`}>
+        {text}
+      </p>
+    </div>
+  );
+}
+
 export function InvestigationCard({ investigation, onLaunch, onApprove, compact }: InvestigationCardProps) {
   const [expanded, setExpanded] = useState(false);
   const isActive = ['INVESTIGATING', 'FIX_IN_PROGRESS', 'LAUNCHING'].includes(investigation.status);
@@ -220,13 +245,8 @@ export function InvestigationCard({ investigation, onLaunch, onApprove, compact 
             <div className="text-xs text-app-text-muted italic">
               Next: {nextStepText(investigation.classification)}
             </div>
-            {/* Root cause */}
-            <div className="p-3 rounded-lg bg-app-panel border border-app-border-light">
-              <span className="text-xs font-medium text-app-text-secondary">Root Cause</span>
-              <p className="text-xs text-app-text-secondary mt-1 line-clamp-3">
-                {investigation.investigation_report.root_cause}
-              </p>
-            </div>
+            {/* Root cause — expandable */}
+            <RootCauseBlock text={investigation.investigation_report.root_cause} />
           </div>
         );
       })()}
@@ -299,19 +319,7 @@ export function InvestigationCard({ investigation, onLaunch, onApprove, compact 
         </div>
       )}
 
-      {/* PR link for completed investigations */}
-      {showDetails && investigation.pr_url && (
-        <a
-          href={investigation.pr_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-3 flex items-center gap-1.5 text-xs font-medium text-app-primary hover:text-app-primary-hover"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <ExternalLink className="w-3.5 h-3.5" />
-          View Pull Request
-        </a>
-      )}
+      {/* PR link removed — the View PR button in the actions row is sufficient */}
 
       {/* Error display */}
       {investigation.error && (

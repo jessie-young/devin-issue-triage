@@ -545,12 +545,13 @@ _SEED_TEMPLATES: list[dict] = [
             root_cause="Concurrent withdrawal requests race past the balance check because the read-then-write is not wrapped in a serializable transaction. Two requests can both read the same positive balance and each subtract, resulting in a negative final balance.",
             complexity="high",
             fix_confidence=72,
-            classification=InvestigationClassification.NEEDS_REVIEW,
+            classification=InvestigationClassification.ESCALATE,
             summary="Race condition in concurrent withdrawals allows negative balance. Needs database-level locking or serializable isolation.",
             recommended_fix="Wrap the balance check and debit in a serializable transaction or use SELECT … FOR UPDATE to lock the row during the withdrawal flow.",
             related_issues=[],
         ),
-        "priority": 90,
+        "priority": 95,
+        "seed_as": "in_progress",  # P0 bug — always seeded
     },
     {
         "title": "bug: transaction search breaks on special characters",
@@ -568,6 +569,7 @@ _SEED_TEMPLATES: list[dict] = [
             related_issues=[],
         ),
         "priority": 60,
+        "seed_as": "pending_review",  # Always seeded as PENDING_REVIEW with draft PR
     },
     {
         "title": "security: password reset tokens never expire",
@@ -584,7 +586,8 @@ _SEED_TEMPLATES: list[dict] = [
             recommended_fix="Add an expires_at column to the reset_tokens table, set it to NOW() + 1 hour on creation, and reject tokens where expires_at < NOW().",
             related_issues=[],
         ),
-        "priority": 95,
+        "priority": 90,
+        "seed_as": "in_progress",  # P0 security — always seeded
     },
     {
         "title": "feature: support multi-currency cross-border transfers",
@@ -602,6 +605,7 @@ _SEED_TEMPLATES: list[dict] = [
             related_issues=[],
         ),
         "priority": 40,
+        "seed_as": "in_progress",  # P2 feature — always seeded
     },
     {
         "title": "feature: email alerts for large transactions",
@@ -636,6 +640,7 @@ _SEED_TEMPLATES: list[dict] = [
             related_issues=[],
         ),
         "priority": 55,
+        "seed_as": "in_progress",  # P1 bug — always seeded
     },
     {
         "title": "bug: missing DATABASE_URL causes unhandled crash on startup",
@@ -687,6 +692,7 @@ _SEED_TEMPLATES: list[dict] = [
             related_issues=[],
         ),
         "priority": 35,
+        "seed_as": "in_progress",  # P1 docs/chore — always seeded
     },
     {
         "title": "refactor: duplicated validation logic across controllers",
@@ -733,35 +739,20 @@ _DRAFT_PR_URL = "https://github.com/jessie-young/demo-finserv-repo/pull/113"
 async def _seed_demo_investigations() -> int:
     """Create brand-new GitHub issues and seed them as completed investigations.
 
-    Picks 5 random templates from _SEED_TEMPLATES, creates a new GitHub issue
-    for each, posts the investigation report as a comment on the issue, and adds
-    them to the dashboard.
+    Seeds a **fixed** set of issues from _SEED_TEMPLATES based on their
+    ``seed_as`` marker so the dashboard always shows the same diverse set
+    after Reset:
 
-    Special seed modes:
-    - The "transaction search" issue (AUTO_FIX) is always included and seeded
-      as PENDING_REVIEW with the draft PR link attached.
-    - Any template with seed_as="stale_close" is always included and seeded as
-      INVESTIGATION_COMPLETE with a recommendation to close.
-    - Remaining templates are seeded as INVESTIGATION_COMPLETE (the default).
+    - ``seed_as="in_progress"`` → INVESTIGATION_COMPLETE (In Progress column)
+    - ``seed_as="pending_review"`` → PENDING_REVIEW with draft PR link
+    - ``seed_as="stale_close"`` → INVESTIGATION_COMPLETE with close recommendation
+    - Templates without a ``seed_as`` marker are **not** seeded on Reset.
     """
     import random
     from app.services.playbook_router import playbook_router
 
-    # Always include the transaction search template (PENDING_REVIEW) and stale template
-    transaction_search = next(
-        (t for t in _SEED_TEMPLATES if "transaction search" in t["title"]),
-        None,
-    )
-    stale_close = next(
-        (t for t in _SEED_TEMPLATES if t.get("seed_as") == "stale_close"),
-        None,
-    )
-    # Fill remaining slots with random other templates
-    always_include = {id(t) for t in [transaction_search, stale_close] if t}
-    others = [t for t in _SEED_TEMPLATES if id(t) not in always_include]
-    remaining = random.sample(others, min(3, len(others)))
-
-    selected = [t for t in [transaction_search, stale_close] if t] + remaining
+    # Select only templates that have an explicit seed_as marker
+    selected = [t for t in _SEED_TEMPLATES if t.get("seed_as")]
     seeded = 0
 
     for template in selected:
@@ -804,9 +795,10 @@ async def _seed_demo_investigations() -> int:
 
         now = time.time()
 
-        # Determine seed mode
-        is_pending_review = (template is transaction_search)
-        is_stale = template.get("seed_as") == "stale_close"
+        # Determine seed mode from the template marker
+        seed_mode = template.get("seed_as", "in_progress")
+        is_pending_review = seed_mode == "pending_review"
+        is_stale = seed_mode == "stale_close"
 
         if is_pending_review:
             # Seed as PENDING_REVIEW with fix telemetry and draft PR link
