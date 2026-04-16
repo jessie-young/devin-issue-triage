@@ -181,6 +181,11 @@ class SessionPoller:
 
                     # Process new messages for telemetry
                     for msg in new_messages:
+                        # Skip our own prompt messages — they contain all the
+                        # telemetry keywords and would instantly mark every step
+                        # as completed.  Only Devin's responses carry real progress.
+                        if msg.get("source") == "user":
+                            continue
                         text = msg.get("content", "") or msg.get("message", "") or ""
                         if not text:
                             continue
