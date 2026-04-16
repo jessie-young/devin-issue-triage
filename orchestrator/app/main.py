@@ -20,17 +20,28 @@ logger = logging.getLogger(__name__)
 
 
 async def _auto_seed():
-    """Auto-seed investigations from GitHub issues on startup for demo purposes."""
+    """Auto-seed investigations from GitHub issues on startup.
+
+    In production mode (DEVIN_API_KEY set), only ingests issues into the queue
+    without simulating them — real Devin sessions will handle investigation.
+    In demo mode, simulates the full investigation pipeline with fake data.
+    """
     from app.config import settings
     from app.services.github_service import github_service
     from app.services.investigation_store import investigation_store
-    from app.routers.investigations import simulate_investigation
 
     if not settings.github_token:
         logger.info("No GITHUB_TOKEN set, skipping auto-seed")
         return
 
+    production_mode = bool(settings.devin_api_key)
+    if production_mode:
+        logger.info("Production mode detected (DEVIN_API_KEY set) — skipping auto-seed simulation")
+        return
+
     try:
+        from app.routers.investigations import simulate_investigation
+
         issues = await github_service.list_issues(state="open", per_page=30)
         created = 0
         for issue in issues:
@@ -38,10 +49,10 @@ async def _auto_seed():
                 continue
             inv = await investigation_store.create_investigation(
                 issue_number=issue["number"],
-                issue_title=issue.get("title", ""),
-                issue_body=issue.get("body", ""),
-                issue_url=issue.get("html_url", ""),
-                issue_labels=[l.get("name", "") for l in issue.get("labels", [])],
+                issue_title=issue.get("title") or "",
+                issue_body=issue.get("body") or "",
+                issue_url=issue.get("html_url") or "",
+                issue_labels=[l.get("name", "") for l in issue.get("labels") or []],
             )
             created += 1
 

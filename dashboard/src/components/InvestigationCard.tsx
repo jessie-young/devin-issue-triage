@@ -1,4 +1,5 @@
-import { Play, CheckCircle2, Clock, AlertTriangle, XCircle, Circle, Loader2, ExternalLink } from 'lucide-react';
+import { useState } from 'react';
+import { Play, CheckCircle2, Clock, AlertTriangle, XCircle, Circle, Loader2, ExternalLink, ChevronDown, ChevronUp } from 'lucide-react';
 import type { Investigation, InvestigationClassification, TelemetryStep } from '../types/investigation';
 
 interface InvestigationCardProps {
@@ -93,6 +94,7 @@ function ElapsedTimer({ startedAt, completedAt }: { startedAt: number | null; co
 }
 
 export function InvestigationCard({ investigation, onLaunch, compact }: InvestigationCardProps) {
+  const [expanded, setExpanded] = useState(false);
   const isActive = ['INVESTIGATING', 'FIX_IN_PROGRESS', 'LAUNCHING'].includes(investigation.status);
   const isAutoFixReady = investigation.status === 'INVESTIGATION_COMPLETE' && investigation.classification === 'AUTO_FIX';
 
@@ -102,8 +104,16 @@ export function InvestigationCard({ investigation, onLaunch, compact }: Investig
     investigation.status === 'FAILED' ? 'border-app-danger/20' :
     'border-app-border';
 
+  const isClickable = compact;
+  const showDetails = !compact || expanded;
+
   return (
-    <div className={`rounded-lg border ${borderStyle} bg-white p-4 transition-all duration-300 animate-fade-in`}>
+    <div
+      className={`rounded-lg border ${borderStyle} bg-white p-4 transition-all duration-300 animate-fade-in ${
+        isClickable ? 'cursor-pointer hover:shadow-md hover:border-app-primary/30' : ''
+      }`}
+      onClick={isClickable ? () => setExpanded(!expanded) : undefined}
+    >
       {/* Header */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
@@ -113,6 +123,11 @@ export function InvestigationCard({ investigation, onLaunch, compact }: Investig
         <div className="flex items-center gap-2 flex-shrink-0">
           {classificationBadge(investigation.classification)}
           <ElapsedTimer startedAt={investigation.started_at} completedAt={investigation.completed_at} />
+          {isClickable && (
+            expanded
+              ? <ChevronUp className="w-3.5 h-3.5 text-app-text-muted" />
+              : <ChevronDown className="w-3.5 h-3.5 text-app-text-muted" />
+          )}
         </div>
       </div>
 
@@ -128,18 +143,19 @@ export function InvestigationCard({ investigation, onLaunch, compact }: Investig
           target="_blank"
           rel="noopener noreferrer"
           className="text-xs text-app-text-muted hover:text-app-primary mt-1 inline-block"
+          onClick={(e) => e.stopPropagation()}
         >
           #{investigation.issue_number}
         </a>
       )}
 
       {/* Investigation Timeline */}
-      {!compact && investigation.telemetry.length > 0 && (
+      {showDetails && investigation.telemetry.length > 0 && (
         <InvestigationTimeline steps={investigation.telemetry} />
       )}
 
       {/* Investigation Report Summary */}
-      {!compact && investigation.investigation_report && (
+      {showDetails && investigation.investigation_report && (
         <div className="mt-3 p-3 rounded-lg bg-app-panel border border-app-border-light">
           <div className="text-xs font-medium text-app-text-secondary mb-1">Root Cause</div>
           <p className="text-xs text-app-text-secondary line-clamp-3">
@@ -169,7 +185,7 @@ export function InvestigationCard({ investigation, onLaunch, compact }: Investig
       {/* Apply Fix button */}
       {isAutoFixReady && onLaunch && (
         <button
-          onClick={() => onLaunch(investigation.id)}
+          onClick={(e) => { e.stopPropagation(); onLaunch(investigation.id); }}
           className="mt-4 w-full py-2.5 rounded-lg text-sm font-semibold
             bg-app-primary text-white
             hover:bg-app-primary-hover
@@ -182,12 +198,13 @@ export function InvestigationCard({ investigation, onLaunch, compact }: Investig
       )}
 
       {/* PR link for completed investigations */}
-      {investigation.pr_url && (
+      {showDetails && investigation.pr_url && (
         <a
           href={investigation.pr_url}
           target="_blank"
           rel="noopener noreferrer"
           className="mt-3 flex items-center gap-1.5 text-xs font-medium text-app-primary hover:text-app-primary-hover"
+          onClick={(e) => e.stopPropagation()}
         >
           <ExternalLink className="w-3.5 h-3.5" />
           View Pull Request

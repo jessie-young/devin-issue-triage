@@ -98,7 +98,7 @@ function App() {
         />
 
         {/* Center: In Progress (wider) */}
-        <div className="col-span-2">
+        <div className="col-span-2 h-full min-h-0">
           <InvestigationColumn
             title="In Progress"
             investigations={active}
