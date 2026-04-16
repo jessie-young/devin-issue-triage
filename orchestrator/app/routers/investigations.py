@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 
@@ -379,18 +380,33 @@ async def investigate_all_queued():
 
 
 async def _start_all_queued() -> list[str]:
-    """Start Devin investigations for every QUEUED item. Returns list of started IDs."""
+    """Start Devin investigations for every QUEUED item. Returns list of started IDs.
+
+    Includes retry with exponential backoff for 429 rate-limit responses.
+    """
     queued = investigation_store.get_investigations_by_status(InvestigationStatus.QUEUED)
     if not queued:
         return []
 
     started: list[str] = []
     for investigation in queued:
-        try:
-            session_id = await _start_investigation(investigation)
-            started.append(investigation.id)
-        except Exception as e:
-            logger.error(f"Failed to start investigation {investigation.id}: {e}")
+        for attempt in range(4):  # up to 4 attempts (initial + 3 retries)
+            try:
+                session_id = await _start_investigation(investigation)
+                started.append(investigation.id)
+                break
+            except Exception as e:
+                is_rate_limit = "429" in str(e)
+                if is_rate_limit and attempt < 3:
+                    wait = 2 ** attempt  # 1s, 2s, 4s
+                    logger.warning(
+                        "Rate-limited starting %s (attempt %d/4), retrying in %ds",
+                        investigation.id, attempt + 1, wait,
+                    )
+                    await asyncio.sleep(wait)
+                else:
+                    logger.error(f"Failed to start investigation {investigation.id}: {e}")
+                    break
 
     return started
 

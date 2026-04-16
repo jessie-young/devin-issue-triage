@@ -1,9 +1,9 @@
 import { useMemo, useState, useEffect } from 'react';
 import { Inbox, Search, CheckCircle2, RotateCcw, Eye, Zap } from 'lucide-react';
+// FileInvestigationInput removed — issues are added via webhook or Reset
 import { useIssueTriage } from './hooks/useIssueTriage';
 import { HeaderBar } from './components/HeaderBar';
 import { InvestigationColumn } from './components/InvestigationColumn';
-import { FileInvestigationInput } from './components/FileInvestigationInput';
 import { MetricsPanel } from './components/MetricsPanel';
 import type { Investigation } from './types/investigation';
 
@@ -16,10 +16,8 @@ function App() {
     connected,
     autoTriage,
     launchFix,
-    investigateAll,
     toggleAutoTriage,
     approveInvestigation,
-    fileInvestigation,
     resetInvestigations,
   } = useIssueTriage();
 
@@ -125,7 +123,6 @@ function App() {
             <RotateCcw className="w-3.5 h-3.5" />
             Reset
           </button>
-          <FileInvestigationInput onFile={fileInvestigation} />
         </div>
       </div>
 
@@ -137,7 +134,6 @@ function App() {
           investigations={queued}
           icon={<Inbox className="w-4 h-4 text-app-primary" />}
           accentColor="text-app-text-secondary"
-          onStartAll={investigateAll}
           compact
           emptyText="No issues queued"
         />
