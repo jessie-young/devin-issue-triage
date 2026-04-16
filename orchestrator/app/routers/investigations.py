@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from app.config import settings
-from app.models.investigation import InvestigationClassification, InvestigationStatus, SSEEvent
+from app.models.investigation import InvestigationClassification, InvestigationReport, InvestigationStatus, SSEEvent
 from app.services.devin_client import devin_client
 from app.services.event_bus import event_bus
 from app.services.github_service import github_service
@@ -465,24 +465,165 @@ async def simulate_investigation(investigation_id: str, *, post_comment: bool = 
     return {"status": "simulated", "classification": classification.value if classification else "UNKNOWN"}
 
 
-# Hardcoded list of previously investigated issue numbers from the target repo.
-# These are real closed issues that already went through investigation.
-_SEED_ISSUE_NUMBERS = [24, 25, 26, 27, 28, 29, 30, 31, 32, 33]
+# Pre-built investigation results for seed issues.  Each entry maps an issue
+# number to the data that would have been produced by a completed investigation.
+_SEED_INVESTIGATIONS: dict[int, dict] = {
+    24: {
+        "report": InvestigationReport(
+            relevant_files=["src/modules/accounts/service/account.service.ts", "src/modules/accounts/repository/account.repository.ts"],
+            git_history=["a3f1d72 — Priya Patel — Nov 5 2025 — Add account balance management with optimistic locking"],
+            root_cause="Concurrent withdrawal requests race past the balance check because the read-then-write is not wrapped in a serializable transaction. Two requests can both read the same positive balance and each subtract, resulting in a negative final balance.",
+            complexity="high",
+            fix_confidence=72,
+            classification=InvestigationClassification.NEEDS_REVIEW,
+            summary="Race condition in concurrent withdrawals allows negative balance. Needs database-level locking or serializable isolation.",
+            recommended_fix="Wrap the balance check and debit in a serializable transaction or use SELECT … FOR UPDATE to lock the row during the withdrawal flow.",
+            related_issues=[17],
+        ),
+        "priority": 90,
+    },
+    25: {
+        "report": InvestigationReport(
+            relevant_files=["src/modules/transactions/controller/transaction.controller.ts", "src/modules/transactions/repository/transaction.repository.ts"],
+            git_history=["97e21d6 — Marcus Johnson — Nov 18 2025 — Implement transactions module with pagination"],
+            root_cause="The search query interpolates the user-supplied query string directly into a SQL LIKE clause without escaping special characters (%, _, \\). When the query contains these characters, the database returns unexpected results or throws a syntax error.",
+            complexity="low",
+            fix_confidence=94,
+            classification=InvestigationClassification.AUTO_FIX,
+            summary="Search endpoint fails on special characters due to unescaped SQL LIKE input. Simple sanitization fix.",
+            recommended_fix="Escape %, _, and \\ in the query string before passing it to the LIKE clause. Use a parameterized query helper.",
+            related_issues=[],
+        ),
+        "priority": 60,
+    },
+    26: {
+        "report": InvestigationReport(
+            relevant_files=["src/modules/auth/service/auth.service.ts", "src/modules/auth/repository/auth.repository.ts"],
+            git_history=["f549345 — Sarah Chen — Oct 18 2025 — Implement auth module with JWT token management"],
+            root_cause="Password reset tokens are generated with no expiry timestamp. The token validation only checks whether the token exists in the database, never whether it has expired. A leaked reset link remains valid forever.",
+            complexity="low",
+            fix_confidence=96,
+            classification=InvestigationClassification.AUTO_FIX,
+            summary="Password reset tokens have no TTL — a leaked link works forever. Add expiry timestamp and validation.",
+            recommended_fix="Add an expires_at column to the reset_tokens table, set it to NOW() + 1 hour on creation, and reject tokens where expires_at < NOW().",
+            related_issues=[3],
+        ),
+        "priority": 95,
+    },
+    27: {
+        "report": InvestigationReport(
+            relevant_files=["src/modules/payments/service/payment.service.ts", "src/shared/utils/currency.ts"],
+            git_history=["91c7038 — Sarah Chen — Oct 13 2025 — Add shared types, currency utils, date helpers"],
+            root_cause="Feature request — multi-currency cross-border transfers require FX rate lookup, currency conversion at transfer time, and display of both source and destination amounts. Currently the system only supports single-currency transactions.",
+            complexity="high",
+            fix_confidence=45,
+            classification=InvestigationClassification.ESCALATE,
+            summary="Major feature: multi-currency transfers need FX integration, schema changes, and UI work. Architectural decision required.",
+            recommended_fix="Integrate an FX rate provider, add source_currency/dest_currency columns to the transfers table, convert at execution time, and show both amounts in the UI.",
+            related_issues=[1],
+        ),
+        "priority": 40,
+    },
+    28: {
+        "report": InvestigationReport(
+            relevant_files=["src/modules/notifications/service/notification.service.ts", "src/modules/transactions/service/transaction.service.ts"],
+            git_history=["c82e4f1 — Marcus Johnson — Dec 5 2025 — Add notification service scaffolding"],
+            root_cause="Feature request — large transaction alerts via email. The notification service exists but has no email transport configured and no trigger wired to the transaction completion flow.",
+            complexity="medium",
+            fix_confidence=78,
+            classification=InvestigationClassification.AUTO_FIX,
+            summary="Wire transaction completion event to notification service and add email transport for large-value alerts.",
+            recommended_fix="Add a post-transaction hook that emits a 'large_transaction' event when amount exceeds the configurable threshold, and configure the notification service to send emails via SMTP.",
+            related_issues=[],
+        ),
+        "priority": 50,
+    },
+    29: {
+        "report": InvestigationReport(
+            relevant_files=["src/shared/middleware/rate-limiter.ts", "src/modules/auth/middleware/auth.middleware.ts"],
+            git_history=["b24dc2a — Sarah Chen — Oct 20 2025 — Add auth middleware, error handler, and rate limiter"],
+            root_cause="Feature request — per-client API rate limiting. The existing rate limiter uses a global counter, not per-client. Need to key by API token/client ID and enforce configurable limits per tier.",
+            complexity="medium",
+            fix_confidence=85,
+            classification=InvestigationClassification.AUTO_FIX,
+            summary="Rate limiter is global, not per-client. Need to key by client ID and add tiered limits.",
+            recommended_fix="Replace the global counter with a per-client-ID sliding window (Redis or in-memory Map). Add rate limit tiers to the client configuration and return Retry-After headers on 429 responses.",
+            related_issues=[],
+        ),
+        "priority": 55,
+    },
+    30: {
+        "report": InvestigationReport(
+            relevant_files=["src/modules/reporting/controller/report.controller.ts", "docs/api/"],
+            git_history=["17217fe — Marcus Johnson — Dec 20 2025 — Add reporting module with CSV export"],
+            root_cause="Documentation gap — the reporting module endpoints (/api/reports/*) are implemented but have no OpenAPI annotations or external documentation. Partners cannot discover or integrate with the reporting API.",
+            complexity="low",
+            fix_confidence=90,
+            classification=InvestigationClassification.AUTO_FIX,
+            summary="Reporting endpoints are undocumented. Add OpenAPI decorators and generate API docs.",
+            recommended_fix="Add @ApiOperation and @ApiResponse decorators to all report controller methods. Generate OpenAPI spec and publish to the developer portal.",
+            related_issues=[],
+        ),
+        "priority": 35,
+    },
+    31: {
+        "report": InvestigationReport(
+            relevant_files=["src/modules/accounts/controller/account.controller.ts", "src/modules/payments/controller/payment.controller.ts", "src/modules/transactions/controller/transaction.controller.ts"],
+            git_history=["Multiple commits across controllers — validation logic is duplicated"],
+            root_cause="Refactoring opportunity — input validation for request body fields (amount, currency, dates) is copy-pasted across 3+ controllers. Changes to validation rules must be made in multiple places, leading to inconsistencies.",
+            complexity="medium",
+            fix_confidence=80,
+            classification=InvestigationClassification.AUTO_FIX,
+            summary="Validation logic is duplicated across controllers. Extract shared validators into a common module.",
+            recommended_fix="Create src/shared/validators/ with reusable validation functions (validateAmount, validateCurrency, validateDateRange) and replace the inline validation in each controller.",
+            related_issues=[],
+        ),
+        "priority": 30,
+    },
+    32: {
+        "report": InvestigationReport(
+            relevant_files=["src/main.ts", "src/config/database.ts"],
+            git_history=["8a12bc3 — Priya Patel — Oct 10 2025 — Initial project setup with database config"],
+            root_cause="The app attempts to connect to the database immediately on startup without checking whether DATABASE_URL is set. If the env var is missing, the connection string is undefined and the driver throws an unhandled TypeError that crashes the process.",
+            complexity="low",
+            fix_confidence=98,
+            classification=InvestigationClassification.AUTO_FIX,
+            summary="Missing DATABASE_URL env var causes unhandled crash on startup. Add validation and a clear error message.",
+            recommended_fix="Add a startup check in src/config/database.ts that validates DATABASE_URL is set and throws a descriptive error before attempting the connection.",
+            related_issues=[],
+        ),
+        "priority": 75,
+    },
+    33: {
+        "report": InvestigationReport(
+            relevant_files=["package.json", "package-lock.json", "src/shared/utils/"],
+            git_history=["Multiple dependency additions across project lifetime"],
+            root_cause="Security audit — several dependencies have known CVEs. bcrypt@5.0.1 has a high-severity vulnerability, and jsonwebtoken@8.x has a moderate signature bypass issue. A full npm audit shows 4 high and 2 moderate vulnerabilities.",
+            complexity="medium",
+            fix_confidence=65,
+            classification=InvestigationClassification.NEEDS_REVIEW,
+            summary="Dependency audit found 6 vulnerabilities (4 high, 2 moderate). Upgrades need compatibility testing.",
+            recommended_fix="Run npm audit fix for auto-fixable issues. Manually upgrade bcrypt to v6 and jsonwebtoken to v9. Test auth flows after upgrade since both are security-critical.",
+            related_issues=[],
+        ),
+        "priority": 85,
+    },
+}
 
 
 async def _seed_demo_investigations() -> int:
-    """Fetch existing GitHub issues and seed them into In Progress.
+    """Fetch existing GitHub issues and seed them as completed investigations.
 
-    Picks 5 random issues from _SEED_ISSUE_NUMBERS, fetches them from the
-    GitHub API, and adds them to the dashboard as INVESTIGATING so the board
-    looks like there is already an active triage backlog.
+    Picks 5 random issues from _SEED_INVESTIGATIONS, fetches them from the
+    GitHub API, and adds them to the dashboard as INVESTIGATION_COMPLETE with
+    all telemetry steps marked completed and full investigation reports.
     No new issues are created — these are real, existing issues.
     """
     import random
     from app.services.playbook_router import playbook_router
     from app.services.github_service import github_service
 
-    selected_numbers = random.sample(_SEED_ISSUE_NUMBERS, min(5, len(_SEED_ISSUE_NUMBERS)))
+    selected_numbers = random.sample(list(_SEED_INVESTIGATIONS.keys()), min(5, len(_SEED_INVESTIGATIONS)))
     seeded = 0
 
     for issue_number in selected_numbers:
@@ -504,16 +645,31 @@ async def _seed_demo_investigations() -> int:
             issue_labels=issue_labels,
         )
 
+        seed_data = _SEED_INVESTIGATIONS[issue_number]
+        report: InvestigationReport = seed_data["report"]
+        priority: int = seed_data.get("priority", 50)
+
         # Resolve playbook for the badge
         _issue_type, _playbook_id, _playbook_name = playbook_router.resolve_playbook(
             issue_title, issue_labels
         )
+
+        # Mark all investigation telemetry steps as completed
+        for step in inv.telemetry:
+            step.status = "completed"
+            step.timestamp = time.time()
+
+        now = time.time()
         await investigation_store.update_investigation(
             inv.id,
-            status=InvestigationStatus.INVESTIGATING,
+            status=InvestigationStatus.INVESTIGATION_COMPLETE,
             playbook_name=_playbook_name,
             playbook_id=_playbook_id,
-            started_at=time.time(),
+            investigation_report=report,
+            classification=report.classification,
+            started_at=now - random.uniform(30, 120),  # simulate elapsed time
+            completed_at=now,
+            priority=priority,
         )
         seeded += 1
 

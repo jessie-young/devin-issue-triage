@@ -67,6 +67,7 @@ class Investigation(BaseModel):
     playbook_name: Optional[str] = None
     playbook_id: Optional[str] = None
     pr_url: Optional[str] = None
+    priority: int = 50  # 0-100, higher = more urgent
     created_at: float = Field(default_factory=time.time)
     started_at: Optional[float] = None
     completed_at: Optional[float] = None
