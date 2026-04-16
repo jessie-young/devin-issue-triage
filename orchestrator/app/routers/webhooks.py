@@ -65,6 +65,12 @@ async def github_webhook(
     if not issue_number:
         raise HTTPException(status_code=400, detail="Missing issue number")
 
+    # While the backend is seeding demo data (Reset), ignore all webhook events
+    # to prevent race conditions where webhooks overwrite seeded states.
+    if investigation_store.seeding:
+        logger.info("Seeding in progress — ignoring webhook for issue #%s", issue_number)
+        return {"status": "ignored", "reason": "seeding in progress"}
+
     # Check if this issue already exists (e.g. seeded by Reset)
     existing = investigation_store.get_investigation(f"FINSERV-{issue_number}")
     if existing is not None:

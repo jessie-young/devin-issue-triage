@@ -80,7 +80,16 @@ async def reset_investigations():
     will appear alongside these seed items.
     """
     cleared = await investigation_store.clear_all()
-    seeded = await _seed_demo_investigations()
+    # Set seeding lock so incoming webhooks don't overwrite seeded states
+    investigation_store.seeding = True
+    try:
+        seeded = await _seed_demo_investigations()
+        # Grace period: webhooks for the just-created issues may arrive slightly
+        # after seeding finishes. Wait a few seconds so they hit the lock or the
+        # "already exists" check in the webhook handler.
+        await asyncio.sleep(5)
+    finally:
+        investigation_store.seeding = False
     return {"status": "ok", "cleared": cleared, "seeded": seeded}
 
 
