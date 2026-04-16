@@ -22,6 +22,15 @@ class InvestigationStore:
     def __init__(self) -> None:
         self._investigations: dict[str, Investigation] = {}
         self._uptime_start: float = time.time()
+        self._auto_triage: bool = False
+
+    @property
+    def auto_triage(self) -> bool:
+        return self._auto_triage
+
+    @auto_triage.setter
+    def auto_triage(self, value: bool) -> None:
+        self._auto_triage = value
 
     async def create_investigation(
         self,

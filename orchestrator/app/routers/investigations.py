@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from app.config import settings
-from app.models.investigation import InvestigationClassification, InvestigationStatus
+from app.models.investigation import InvestigationClassification, InvestigationStatus, SSEEvent
 from app.services.devin_client import devin_client
 from app.services.event_bus import event_bus
 from app.services.github_service import github_service
@@ -331,6 +331,41 @@ async def ingest_all_issues():
     return {"status": "ok", "created": len(created), "investigation_ids": created}
 
 
+@router.get("/auto-triage")
+async def get_auto_triage():
+    """Get the current auto-triage toggle state."""
+    return {"enabled": investigation_store.auto_triage}
+
+
+class AutoTriageRequest(BaseModel):
+    enabled: bool
+
+
+@router.post("/auto-triage")
+async def set_auto_triage(req: AutoTriageRequest):
+    """Set the auto-triage toggle.
+
+    When toggled ON, all currently queued investigations are immediately
+    kicked off, and any new issues arriving via webhook will be auto-started.
+    When toggled OFF, new issues just land in the Queue.
+    """
+    investigation_store.auto_triage = req.enabled
+    logger.info("Auto-triage toggled %s", "ON" if req.enabled else "OFF")
+
+    await event_bus.publish(SSEEvent(
+        event_type="auto_triage_changed",
+        investigation_id="SYSTEM",
+        data={"enabled": req.enabled},
+    ))
+
+    started_ids: list[str] = []
+    if req.enabled:
+        # Kick off all currently queued investigations
+        started_ids = await _start_all_queued()
+
+    return {"status": "ok", "enabled": req.enabled, "started": len(started_ids), "investigation_ids": started_ids}
+
+
 @router.post("/investigate-all")
 async def investigate_all_queued():
     """Kick off investigations for ALL queued items at once.
@@ -339,47 +374,61 @@ async def investigate_all_queued():
     Each queued investigation gets a Devin session (or simulated investigation
     if the Devin API is unavailable).
     """
+    started_ids = await _start_all_queued()
+    return {"status": "ok", "started": len(started_ids), "investigation_ids": started_ids}
+
+
+async def _start_all_queued() -> list[str]:
+    """Start Devin investigations for every QUEUED item. Returns list of started IDs."""
     queued = investigation_store.get_investigations_by_status(InvestigationStatus.QUEUED)
     if not queued:
-        return {"status": "ok", "started": 0, "investigation_ids": []}
+        return []
 
-    started = []
+    started: list[str] = []
     for investigation in queued:
         try:
-            # Resolve playbook
-            from app.services.playbook_router import playbook_router as _pb_router
-            _issue_type, _playbook_id, _playbook_name = _pb_router.resolve_playbook(
-                investigation.issue_title, investigation.issue_labels
-            )
-            await investigation_store.update_investigation(
-                investigation.id,
-                playbook_name=_playbook_name,
-                playbook_id=_playbook_id,
-            )
-
-            session = await devin_client.create_investigation_session(
-                issue_number=investigation.issue_number,
-                issue_title=investigation.issue_title,
-                issue_body=investigation.issue_body,
-                repo=settings.target_repo,
-                playbook_id=_playbook_id,
-                issue_type=_issue_type.value,
-            )
-            session_id = session.get("session_id") or session.get("id", "")
-            await investigation_store.update_investigation(
-                investigation.id,
-                status=InvestigationStatus.INVESTIGATING,
-                devin_session_id=session_id,
-                started_at=time.time(),
-            )
-            await investigation_store.update_telemetry_step(investigation.id, "ingest", "completed")
-            await session_poller.start_polling(investigation.id, session_id, "investigation")
+            session_id = await _start_investigation(investigation)
             started.append(investigation.id)
-
         except Exception as e:
             logger.error(f"Failed to start investigation {investigation.id}: {e}")
 
-    return {"status": "ok", "started": len(started), "investigation_ids": started}
+    return started
+
+
+async def _start_investigation(investigation) -> str:
+    """Start a single Devin investigation session for an investigation.
+
+    Resolves the playbook, creates a Devin session, updates the investigation
+    status to INVESTIGATING, and starts polling. Returns the session ID.
+    """
+    from app.services.playbook_router import playbook_router as _pb_router
+    _issue_type, _playbook_id, _playbook_name = _pb_router.resolve_playbook(
+        investigation.issue_title, investigation.issue_labels
+    )
+    await investigation_store.update_investigation(
+        investigation.id,
+        playbook_name=_playbook_name,
+        playbook_id=_playbook_id,
+    )
+
+    session = await devin_client.create_investigation_session(
+        issue_number=investigation.issue_number,
+        issue_title=investigation.issue_title,
+        issue_body=investigation.issue_body,
+        repo=settings.target_repo,
+        playbook_id=_playbook_id,
+        issue_type=_issue_type.value,
+    )
+    session_id = session.get("session_id") or session.get("id", "")
+    await investigation_store.update_investigation(
+        investigation.id,
+        status=InvestigationStatus.INVESTIGATING,
+        devin_session_id=session_id,
+        started_at=time.time(),
+    )
+    await investigation_store.update_telemetry_step(investigation.id, "ingest", "completed")
+    await session_poller.start_polling(investigation.id, session_id, "investigation")
+    return session_id
 
 
 @router.post("/simulate/{investigation_id}")
