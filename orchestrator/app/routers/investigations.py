@@ -21,6 +21,9 @@ from app.services.session_poller import session_poller
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/investigations", tags=["investigations"])
 
+# Keep references to background tasks so they aren't garbage-collected mid-execution.
+_background_tasks: set[asyncio.Task] = set()
+
 
 class FileInvestigationRequest(BaseModel):
     """Request to manually file an investigation from an issue URL or number."""
@@ -175,7 +178,9 @@ async def launch_fix(req: LaunchFixRequest):
 
     # Simulate the fix process in the background with stepped delays
     # so the UI shows realistic progression without waiting for a real Devin session.
-    asyncio.create_task(_simulate_fix_flow(req.investigation_id))
+    task = asyncio.create_task(_simulate_fix_flow(req.investigation_id))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
     return {"status": "launched", "investigation_id": req.investigation_id}
 
 
@@ -211,6 +216,11 @@ async def _simulate_fix_flow(investigation_id: str) -> None:
         ))
     except Exception as e:
         logger.error(f"Simulated fix flow failed for {investigation_id}: {e}")
+        await investigation_store.update_investigation(
+            investigation_id,
+            status=InvestigationStatus.FAILED,
+            error=str(e),
+        )
 
 
 @router.post("/route")
@@ -377,7 +387,9 @@ async def _start_investigation(investigation) -> str:
     await investigation_store.update_telemetry_step(investigation.id, "ingest", "completed")
 
     # Run investigation simulation in background so the webhook returns immediately
-    asyncio.create_task(_simulate_investigation_flow(investigation.id))
+    task = asyncio.create_task(_simulate_investigation_flow(investigation.id))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
     return "simulated"
 
 
@@ -433,6 +445,11 @@ async def _simulate_investigation_flow(investigation_id: str) -> None:
         ))
     except Exception as e:
         logger.error(f"Simulated investigation flow failed for {investigation_id}: {e}")
+        await investigation_store.update_investigation(
+            investigation_id,
+            status=InvestigationStatus.FAILED,
+            error=str(e),
+        )
 
 
 @router.post("/simulate/{investigation_id}")
@@ -667,7 +684,29 @@ _SEED_TEMPLATES: list[dict] = [
         ),
         "priority": 30,
     },
+    {
+        "title": "bug: login page returns 403 after session timeout",
+        "body": "## Bug Report\n\nAfter a session times out (~30 min idle), navigating back to the login page returns a 403 Forbidden instead of rendering the login form. Users must clear cookies or open an incognito window to log in again.\n\n### Steps to Reproduce\n1. Log in to the application\n2. Wait 30+ minutes without activity\n3. Navigate to /login\n4. Observe 403 Forbidden\n\n### Expected Behavior\nThe login page should always render regardless of session state.",
+        "labels": ["bug"],
+        "report": InvestigationReport(
+            relevant_files=["src/modules/auth/middleware/auth.middleware.ts", "src/modules/auth/controller/auth.controller.ts"],
+            git_history=["d91b4e2 — Sarah Chen — Jan 12 2026 — Fix auth middleware to skip public routes", "a7f3c21 — Priya Patel — Jan 15 2026 — Add /login to public route whitelist"],
+            root_cause="This bug was already fixed in commit a7f3c21 (Jan 15 2026). The auth middleware was applying session validation to all routes including /login. Priya added /login to the public route whitelist, which resolves the issue. The fix has been deployed to production.",
+            complexity="low",
+            fix_confidence=98,
+            classification=InvestigationClassification.NEEDS_REVIEW,
+            summary="Already fixed in production (commit a7f3c21). The /login route was added to the public whitelist on Jan 15. Recommend closing this issue as resolved.",
+            recommended_fix="No code changes needed. Close this issue — the bug was already fixed in commit a7f3c21 by adding /login to the auth middleware's public route whitelist.",
+            related_issues=[],
+        ),
+        "priority": 20,
+        "seed_as": "stale_close",  # Special marker: seed as closeable stale issue
+    },
 ]
+
+# The draft PR URL for the transaction search fix on demo-finserv-repo.
+# This is linked to the seed issue that gets placed in PENDING_REVIEW.
+_DRAFT_PR_URL = "https://github.com/jessie-young/demo-finserv-repo/pull/113"
 
 
 async def _seed_demo_investigations() -> int:
@@ -675,13 +714,33 @@ async def _seed_demo_investigations() -> int:
 
     Picks 5 random templates from _SEED_TEMPLATES, creates a new GitHub issue
     for each, posts the investigation report as a comment on the issue, and adds
-    them to the dashboard as INVESTIGATION_COMPLETE with all telemetry steps
-    marked completed and full investigation reports.
+    them to the dashboard.
+
+    Special seed modes:
+    - The "transaction search" issue (AUTO_FIX) is always included and seeded
+      as PENDING_REVIEW with the draft PR link attached.
+    - Any template with seed_as="stale_close" is always included and seeded as
+      INVESTIGATION_COMPLETE with a recommendation to close.
+    - Remaining templates are seeded as INVESTIGATION_COMPLETE (the default).
     """
     import random
     from app.services.playbook_router import playbook_router
 
-    selected = random.sample(_SEED_TEMPLATES, min(5, len(_SEED_TEMPLATES)))
+    # Always include the transaction search template (PENDING_REVIEW) and stale template
+    transaction_search = next(
+        (t for t in _SEED_TEMPLATES if "transaction search" in t["title"]),
+        None,
+    )
+    stale_close = next(
+        (t for t in _SEED_TEMPLATES if t.get("seed_as") == "stale_close"),
+        None,
+    )
+    # Fill remaining slots with random other templates
+    always_include = {id(t) for t in [transaction_search, stale_close] if t}
+    others = [t for t in _SEED_TEMPLATES if id(t) not in always_include]
+    remaining = random.sample(others, min(3, len(others)))
+
+    selected = [t for t in [transaction_search, stale_close] if t] + remaining
     seeded = 0
 
     for template in selected:
@@ -723,19 +782,53 @@ async def _seed_demo_investigations() -> int:
             step.timestamp = time.time()
 
         now = time.time()
-        await investigation_store.update_investigation(
-            inv.id,
-            status=InvestigationStatus.INVESTIGATION_COMPLETE,
-            playbook_name=_playbook_name,
-            playbook_id=_playbook_id,
-            investigation_report=report,
-            classification=report.classification,
-            started_at=now - random.uniform(30, 120),
-            completed_at=now,
-            priority=priority,
-        )
+
+        # Determine seed mode
+        is_pending_review = (template is transaction_search)
+        is_stale = template.get("seed_as") == "stale_close"
+
+        if is_pending_review:
+            # Seed as PENDING_REVIEW with fix telemetry and draft PR link
+            from app.models.investigation import TelemetryStep
+            fix_steps = [
+                TelemetryStep(id="fix_start", label="Writing Fix", status="completed", timestamp=now),
+                TelemetryStep(id="test_write", label="Writing Regression Test", status="completed", timestamp=now),
+                TelemetryStep(id="test_run", label="Running Test Suite", status="completed", timestamp=now),
+                TelemetryStep(id="pr_open", label="Opening PR", status="completed", timestamp=now),
+                TelemetryStep(id="resolved", label="Resolved", status="completed", timestamp=now),
+            ]
+            all_telemetry = list(inv.telemetry) + fix_steps
+            await investigation_store.update_investigation(
+                inv.id,
+                status=InvestigationStatus.PENDING_REVIEW,
+                playbook_name=_playbook_name,
+                playbook_id=_playbook_id,
+                investigation_report=report,
+                classification=report.classification,
+                telemetry=all_telemetry,
+                pr_url=_DRAFT_PR_URL,
+                started_at=now - random.uniform(30, 120),
+                completed_at=now,
+                priority=priority,
+            )
+        else:
+            # Default: seed as INVESTIGATION_COMPLETE
+            await investigation_store.update_investigation(
+                inv.id,
+                status=InvestigationStatus.INVESTIGATION_COMPLETE,
+                playbook_name=_playbook_name,
+                playbook_id=_playbook_id,
+                investigation_report=report,
+                classification=report.classification,
+                started_at=now - random.uniform(30, 120),
+                completed_at=now,
+                priority=priority,
+            )
 
         # Post investigation report as a comment on the newly created issue
+        comment_body = None
+        if is_pending_review:
+            comment_body = f"Draft PR with fix: {_DRAFT_PR_URL}"
         try:
             await github_service.post_investigation_comment(
                 issue_number=issue_number,
@@ -744,6 +837,9 @@ async def _seed_demo_investigations() -> int:
                 playbook_name=_playbook_name,
                 playbook_id=_playbook_id,
             )
+            # If there's a PR link, post it as a separate comment
+            if comment_body:
+                await github_service.post_comment(issue_number, comment_body)
         except Exception as e:
             logger.warning("Failed to post seed comment on #%d: %s", issue_number, e)
 
