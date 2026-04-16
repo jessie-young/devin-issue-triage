@@ -159,6 +159,24 @@ class GitHubService:
             logger.error(f"Failed to fetch issue #{issue_number}: {e}")
             return None
 
+    async def create_issue(self, title: str, body: str, labels: list[str] | None = None) -> dict | None:
+        """Create a new GitHub issue on the target repo."""
+        try:
+            payload: dict = {"title": title, "body": body}
+            if labels:
+                payload["labels"] = labels
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(
+                    f"https://api.github.com/repos/{self._repo}/issues",
+                    headers=self._headers(),
+                    json=payload,
+                )
+                resp.raise_for_status()
+                return resp.json()
+        except Exception as e:
+            logger.error(f"Failed to create issue: {e}")
+            return None
+
     async def list_issues(self, state: str = "open", per_page: int = 30) -> list[dict]:
         """List issues on the target repo."""
         try:
