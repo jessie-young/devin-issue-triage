@@ -307,7 +307,7 @@ export function useIssueTriage() {
       }
       const data = await resp.json();
       addLogEntry('SYSTEM', `Started ${data.started} investigations`);
-      await fetchState();
+      await fetchStateImmediate();
       // Poll for updates as investigations complete
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
       let polls = 0;

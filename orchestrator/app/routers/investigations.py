@@ -206,8 +206,49 @@ async def launch_fix(req: LaunchFixRequest):
         started_at=time.time(),
     )
 
-    # Simulate the fix process in the background with stepped delays
-    # so the UI shows realistic progression without waiting for a real Devin session.
+    # If the Devin API is configured, create a real fix session
+    if devin_client.is_configured:
+        try:
+            session_data = await devin_client.create_fix_session(
+                issue_number=investigation.issue_number,
+                issue_title=investigation.issue_title,
+                issue_body=investigation.issue_body or "",
+                repo=settings.target_repo,
+                investigation_summary=report.summary or "",
+                root_cause=report.root_cause or "",
+                recommended_fix=report.recommended_fix or "",
+                playbook_id=investigation.playbook_id,
+            )
+            session_id = session_data.get("session_id", "")
+            session_url = session_data.get("url", "")
+            logger.info(
+                "Created real Devin fix session %s for %s: %s",
+                session_id, req.investigation_id, session_url,
+            )
+
+            await investigation_store.update_investigation(
+                req.investigation_id,
+                status=InvestigationStatus.FIX_IN_PROGRESS,
+                fix_session_id=session_id,
+                devin_session_url=session_url,
+            )
+            await event_bus.publish(SSEEvent(
+                event_type="investigation_updated",
+                investigation_id=req.investigation_id,
+                data={"status": InvestigationStatus.FIX_IN_PROGRESS.value},
+            ))
+
+            # Start background polling of the fix session
+            await session_poller.start_polling(req.investigation_id, session_id, phase="fix")
+            return {"status": "launched", "investigation_id": req.investigation_id, "session_id": session_id}
+        except Exception as e:
+            logger.warning(
+                "Failed to create real Devin fix session for %s, falling back to simulation: %s",
+                req.investigation_id, e,
+            )
+            # Fall through to simulation
+
+    # Fallback: simulate the fix process in the background
     task = asyncio.create_task(_simulate_fix_flow(req.investigation_id))
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
