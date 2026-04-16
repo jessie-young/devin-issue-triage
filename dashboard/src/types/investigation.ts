@@ -40,6 +40,8 @@ export interface Investigation {
   issue_labels: string[];
   status: InvestigationStatus;
   classification: InvestigationClassification | null;
+  playbook_name: string | null;
+  playbook_id: string | null;
   devin_session_id: string | null;
   fix_session_id: string | null;
   investigation_report: InvestigationReport | null;

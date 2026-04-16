@@ -63,6 +63,8 @@ class Investigation(BaseModel):
     fix_session_id: Optional[str] = None
     investigation_report: Optional[InvestigationReport] = None
     telemetry: list[TelemetryStep] = Field(default_factory=list)
+    playbook_name: Optional[str] = None
+    playbook_id: Optional[str] = None
     pr_url: Optional[str] = None
     created_at: float = Field(default_factory=time.time)
     started_at: Optional[float] = None

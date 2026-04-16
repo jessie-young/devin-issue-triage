@@ -249,9 +249,11 @@ class SessionPoller:
                 elapsed_seconds=time.time() - (investigation.started_at or investigation.created_at),
             )
 
-            # Post comment to GitHub
+            # Post comment to GitHub (include playbook info)
             await github_service.post_investigation_comment(
-                investigation.issue_number, investigation_id, report
+                investigation.issue_number, investigation_id, report,
+                playbook_name=investigation.playbook_name,
+                playbook_id=investigation.playbook_id,
             )
 
             await event_bus.publish(SSEEvent(

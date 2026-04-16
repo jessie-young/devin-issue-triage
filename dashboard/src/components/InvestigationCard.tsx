@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Play, CheckCircle2, Clock, AlertTriangle, XCircle, Circle, Loader2, ExternalLink, ChevronDown, ChevronUp } from 'lucide-react';
+import { Play, CheckCircle2, Clock, AlertTriangle, XCircle, Circle, Loader2, ExternalLink, ChevronDown, ChevronUp, BookOpen } from 'lucide-react';
 import type { Investigation, InvestigationClassification, TelemetryStep } from '../types/investigation';
 
 interface InvestigationCardProps {
@@ -136,18 +136,39 @@ export function InvestigationCard({ investigation, onLaunch, compact }: Investig
         {investigation.issue_title}
       </h3>
 
-      {/* Issue link */}
-      {investigation.issue_url && (
-        <a
-          href={investigation.issue_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-xs text-app-text-muted hover:text-app-primary mt-1 inline-block"
-          onClick={(e) => e.stopPropagation()}
-        >
-          #{investigation.issue_number}
-        </a>
-      )}
+      {/* Issue link + playbook badge */}
+      <div className="flex items-center gap-2 mt-1 flex-wrap">
+        {investigation.issue_url && (
+          <a
+            href={investigation.issue_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-app-text-muted hover:text-app-primary"
+            onClick={(e) => e.stopPropagation()}
+          >
+            #{investigation.issue_number}
+          </a>
+        )}
+        {investigation.playbook_name && (
+          investigation.playbook_id ? (
+            <a
+              href={`https://app.devin.ai/playbooks/${investigation.playbook_id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-app-text-muted hover:text-app-primary bg-app-panel px-1.5 py-0.5 rounded"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <BookOpen className="w-3 h-3" />
+              {investigation.playbook_name}
+            </a>
+          ) : (
+            <span className="inline-flex items-center gap-1 text-xs text-app-text-muted bg-app-panel px-1.5 py-0.5 rounded">
+              <BookOpen className="w-3 h-3" />
+              {investigation.playbook_name}
+            </span>
+          )
+        )}
+      </div>
 
       {/* Investigation Timeline */}
       {showDetails && investigation.telemetry.length > 0 && (
