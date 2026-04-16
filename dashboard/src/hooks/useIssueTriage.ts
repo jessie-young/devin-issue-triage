@@ -96,7 +96,7 @@ export function useIssueTriage() {
         const newStatus = event.data.status as string | undefined;
         // If status changed to a terminal/phase state, do a full refetch for accurate data
         // Note: RESOLVED log entry is handled by the dedicated investigation_resolved event handler
-        if (newStatus && ['RESOLVED', 'ROUTED', 'CLOSED', 'FAILED', 'FIX_IN_PROGRESS', 'LAUNCHING', 'PENDING_REVIEW'].includes(newStatus)) {
+        if (newStatus && ['INVESTIGATING', 'INVESTIGATION_COMPLETE', 'RESOLVED', 'ROUTED', 'CLOSED', 'FAILED', 'FIX_IN_PROGRESS', 'LAUNCHING', 'PENDING_REVIEW'].includes(newStatus)) {
           fetchState();
         } else {
           setInvestigations(prev => {
