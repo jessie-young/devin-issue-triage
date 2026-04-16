@@ -84,6 +84,27 @@ async def reset_investigations():
     return {"status": "ok", "cleared": cleared, "seeded": seeded}
 
 
+@router.get("/auto-triage")
+async def get_auto_triage():
+    """Return the current auto-triage toggle state."""
+    return {"enabled": investigation_store.auto_triage}
+
+
+@router.post("/auto-triage")
+async def set_auto_triage(body: dict):
+    """Toggle auto-triage on or off."""
+    enabled = body.get("enabled", False)
+    investigation_store.auto_triage = bool(enabled)
+
+    await event_bus.publish(SSEEvent(
+        event_type="auto_triage_changed",
+        investigation_id="SYSTEM",
+        data={"enabled": investigation_store.auto_triage},
+    ))
+
+    return {"enabled": investigation_store.auto_triage}
+
+
 @router.get("/{investigation_id}")
 async def get_investigation(investigation_id: str):
     """Get a single investigation by ID."""
