@@ -175,8 +175,12 @@ export function useIssueTriage() {
 
     connect();
 
+    // Fallback poll every 30s in case SSE connection is silently dropped
+    const fallbackPoll = setInterval(() => { fetchState(); }, 30_000);
+
     return () => {
       eventSourceRef.current?.close();
+      clearInterval(fallbackPoll);
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;

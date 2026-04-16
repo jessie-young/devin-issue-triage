@@ -66,7 +66,7 @@ async def get_recent_events(limit: int = 100):
 @router.get("/stream")
 async def sse_stream():
     """SSE endpoint for real-time dashboard updates."""
-    return EventSourceResponse(event_bus.subscribe())
+    return EventSourceResponse(event_bus.subscribe(), ping=15)
 
 
 @router.post("/reset")
