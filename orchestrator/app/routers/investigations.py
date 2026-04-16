@@ -587,7 +587,7 @@ _SEED_TEMPLATES: list[dict] = [
             related_issues=[],
         ),
         "priority": 90,
-        "seed_as": "in_progress",  # P0 security — always seeded
+        # No seed_as — user wants to file this one manually during demo
     },
     {
         "title": "feature: support multi-currency cross-border transfers",
