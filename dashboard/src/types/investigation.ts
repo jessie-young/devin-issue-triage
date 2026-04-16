@@ -48,6 +48,7 @@ export interface Investigation {
   investigation_report: InvestigationReport | null;
   telemetry: TelemetryStep[];
   pr_url: string | null;
+  priority: number;
   created_at: number;
   started_at: number | null;
   completed_at: number | null;

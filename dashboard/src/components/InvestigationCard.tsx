@@ -24,6 +24,22 @@ function classificationBadge(c: InvestigationClassification | null) {
   );
 }
 
+function priorityBadge(priority: number) {
+  if (priority >= 80) return { label: 'P0 Critical', style: 'bg-red-100 text-red-700 border-red-200' };
+  if (priority >= 60) return { label: 'P1 High', style: 'bg-orange-100 text-orange-700 border-orange-200' };
+  if (priority >= 40) return { label: 'P2 Medium', style: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
+  return { label: 'P3 Low', style: 'bg-slate-100 text-slate-600 border-slate-200' };
+}
+
+function nextStepText(classification: InvestigationClassification | null): string {
+  switch (classification) {
+    case 'AUTO_FIX': return 'Ready for auto-fix — click Apply Fix';
+    case 'NEEDS_REVIEW': return 'Needs human review before proceeding';
+    case 'ESCALATE': return 'Requires senior engineering decision';
+    default: return 'Investigation in progress';
+  }
+}
+
 function statusDot(status: string) {
   switch (status) {
     case 'QUEUED':
@@ -180,26 +196,40 @@ export function InvestigationCard({ investigation, onLaunch, onApprove, compact 
         <InvestigationTimeline steps={investigation.telemetry} />
       )}
 
-      {/* Investigation Report Summary */}
-      {showDetails && investigation.investigation_report && (
-        <div className="mt-3 p-3 rounded-lg bg-app-panel border border-app-border-light">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-medium text-app-text-secondary">Root Cause</span>
-            {investigation.investigation_report.fix_confidence > 0 && (
-              <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${
-                investigation.investigation_report.fix_confidence >= 80 ? 'bg-app-success-light text-app-success' :
-                investigation.investigation_report.fix_confidence >= 50 ? 'bg-app-warning-light text-app-warning' :
-                'bg-app-danger-light text-app-danger'
-              }`}>
-                {investigation.investigation_report.fix_confidence}% confidence
+      {/* Priority + Confidence + Next Steps bar */}
+      {showDetails && investigation.investigation_report && (() => {
+        const pb = priorityBadge(investigation.priority);
+        return (
+          <div className="mt-3 space-y-2">
+            {/* Priority & Confidence row */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`text-xs font-semibold px-2 py-0.5 rounded border ${pb.style}`}>
+                {pb.label}
               </span>
-            )}
+              {investigation.investigation_report.fix_confidence > 0 && (
+                <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${
+                  investigation.investigation_report.fix_confidence >= 80 ? 'bg-app-success-light text-app-success' :
+                  investigation.investigation_report.fix_confidence >= 50 ? 'bg-app-warning-light text-app-warning' :
+                  'bg-app-danger-light text-app-danger'
+                }`}>
+                  {investigation.investigation_report.fix_confidence}% confidence
+                </span>
+              )}
+            </div>
+            {/* Next step */}
+            <div className="text-xs text-app-text-muted italic">
+              Next: {nextStepText(investigation.classification)}
+            </div>
+            {/* Root cause */}
+            <div className="p-3 rounded-lg bg-app-panel border border-app-border-light">
+              <span className="text-xs font-medium text-app-text-secondary">Root Cause</span>
+              <p className="text-xs text-app-text-secondary mt-1 line-clamp-3">
+                {investigation.investigation_report.root_cause}
+              </p>
+            </div>
           </div>
-          <p className="text-xs text-app-text-secondary line-clamp-3">
-            {investigation.investigation_report.root_cause}
-          </p>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Action buttons row */}
       {(isAutoFixReady || needsManualIntervention || isPendingReview) && (
