@@ -25,7 +25,7 @@ export function InvestigationColumn({
   emptyText = 'No issues',
 }: InvestigationColumnProps) {
   return (
-    <div className="flex flex-col h-full min-w-0">
+    <div className="flex flex-col h-full min-w-0 min-h-0 overflow-hidden">
       {/* Column Header */}
       <div className="flex items-center gap-2 px-4 py-3 border-b border-app-border bg-white">
         {icon}
