@@ -59,6 +59,18 @@ async def sse_stream():
     return EventSourceResponse(event_bus.subscribe())
 
 
+@router.post("/reset")
+async def reset_investigations():
+    """Clear all investigations and reset the dashboard.
+
+    Used to restart the demo from a clean slate. The in-memory store is
+    wiped and an SSE event is broadcast so connected dashboards refresh
+    automatically.
+    """
+    cleared = await investigation_store.clear_all()
+    return {"status": "ok", "cleared": cleared}
+
+
 @router.get("/{investigation_id}")
 async def get_investigation(investigation_id: str):
     """Get a single investigation by ID."""

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Inbox, Search, CheckCircle2 } from 'lucide-react';
+import { Inbox, Search, CheckCircle2, RotateCcw } from 'lucide-react';
 import { useIssueTriage } from './hooks/useIssueTriage';
 import { HeaderBar } from './components/HeaderBar';
 import { InvestigationColumn } from './components/InvestigationColumn';
@@ -17,27 +17,31 @@ function App() {
     connected,
     launchFix,
     fileInvestigation,
+    resetInvestigations,
   } = useIssueTriage();
 
   const [showMetrics, setShowMetrics] = useState(false);
   const investigationList = useMemo(() => Object.values(investigations), [investigations]);
 
+  // Sort newest-first (highest created_at first) for all columns
+  const sortNewestFirst = (a: Investigation, b: Investigation) => (b.created_at ?? 0) - (a.created_at ?? 0);
+
   const queued = useMemo(
-    () => investigationList.filter((inv: Investigation) => inv.status === 'QUEUED'),
+    () => investigationList.filter((inv: Investigation) => inv.status === 'QUEUED').sort(sortNewestFirst),
     [investigationList]
   );
 
   const active = useMemo(
     () => investigationList.filter((inv: Investigation) =>
       ['INVESTIGATING', 'INVESTIGATION_COMPLETE', 'LAUNCHING', 'FIX_IN_PROGRESS'].includes(inv.status)
-    ),
+    ).sort(sortNewestFirst),
     [investigationList]
   );
 
   const completed = useMemo(
     () => investigationList.filter((inv: Investigation) =>
       ['RESOLVED', 'ROUTED', 'CLOSED', 'FAILED'].includes(inv.status)
-    ),
+    ).sort(sortNewestFirst),
     [investigationList]
   );
 
@@ -80,6 +84,16 @@ function App() {
               hover:text-app-text transition-all shadow-sm"
           >
             Metrics
+          </button>
+          <button
+            onClick={() => { if (window.confirm('Clear all investigations and reset the dashboard?')) resetInvestigations(); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-app-border
+              bg-white hover:bg-red-50 text-xs font-medium text-app-text-secondary
+              hover:text-red-600 transition-all shadow-sm"
+            title="Reset dashboard — clear all investigations"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            Reset
           </button>
           <FileInvestigationInput onFile={fileInvestigation} />
         </div>
