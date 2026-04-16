@@ -92,7 +92,7 @@ class Investigation(BaseModel):
             TelemetryStep(id="test_write", label="Writing Regression Test"),
             TelemetryStep(id="test_run", label="Running Test Suite"),
             TelemetryStep(id="pr_open", label="Opening PR"),
-            TelemetryStep(id="resolved", label="RESOLVED"),
+            TelemetryStep(id="resolved", label="Resolved"),
         ]
 
 
