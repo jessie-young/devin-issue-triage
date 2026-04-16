@@ -97,12 +97,7 @@ async def github_webhook(
         playbook_id=playbook_id,
     )
 
-    # If auto-triage is OFF, leave in Queue
-    if not investigation_store.auto_triage:
-        logger.info("Auto-triage OFF — issue #%s queued without starting investigation", issue_number)
-        return {"status": "queued", "investigation_id": investigation.id}
-
-    # Auto-triage is ON — kick off investigation immediately
+    # Always auto-start investigation for new issues
     try:
         from app.routers.investigations import _start_investigation
         session_id = await _start_investigation(investigation)

@@ -1,9 +1,8 @@
 import { useMemo, useState, useEffect } from 'react';
-import { Inbox, Search, CheckCircle2, RotateCcw, Eye, Zap } from 'lucide-react';
+import { Inbox, Search, CheckCircle2, RotateCcw, Eye } from 'lucide-react';
 import { useIssueTriage } from './hooks/useIssueTriage';
 import { HeaderBar } from './components/HeaderBar';
 import { InvestigationColumn } from './components/InvestigationColumn';
-import { FileInvestigationInput } from './components/FileInvestigationInput';
 import { MetricsPanel } from './components/MetricsPanel';
 import type { Investigation } from './types/investigation';
 
@@ -14,12 +13,8 @@ function App() {
     uptimeStart,
     telemetryLog,
     connected,
-    autoTriage,
     launchFix,
-    investigateAll,
-    toggleAutoTriage,
     approveInvestigation,
-    fileInvestigation,
     resetInvestigations,
   } = useIssueTriage();
 
@@ -93,20 +88,6 @@ function App() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {/* Auto-Triage toggle */}
-          <button
-            onClick={toggleAutoTriage}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium
-              transition-all shadow-sm ${
-              autoTriage
-                ? 'bg-app-primary border-app-primary text-white hover:bg-blue-700'
-                : 'bg-white border-app-border text-app-text-secondary hover:bg-app-panel hover:text-app-text'
-            }`}
-            title={autoTriage ? 'Auto-triage is ON — new issues are automatically investigated' : 'Auto-triage is OFF — new issues stay in Queue'}
-          >
-            <Zap className="w-3.5 h-3.5" />
-            Auto-Triage {autoTriage ? 'ON' : 'OFF'}
-          </button>
           <button
             onClick={() => setShowMetrics(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-app-border
@@ -125,7 +106,6 @@ function App() {
             <RotateCcw className="w-3.5 h-3.5" />
             Reset
           </button>
-          <FileInvestigationInput onFile={fileInvestigation} />
         </div>
       </div>
 
@@ -137,7 +117,6 @@ function App() {
           investigations={queued}
           icon={<Inbox className="w-4 h-4 text-app-primary" />}
           accentColor="text-app-text-secondary"
-          onStartAll={investigateAll}
           compact
           emptyText="No issues queued"
         />

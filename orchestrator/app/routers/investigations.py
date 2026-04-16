@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 
@@ -331,66 +332,41 @@ async def ingest_all_issues():
     return {"status": "ok", "created": len(created), "investigation_ids": created}
 
 
-@router.get("/auto-triage")
-async def get_auto_triage():
-    """Get the current auto-triage toggle state."""
-    return {"enabled": investigation_store.auto_triage}
-
-
-class AutoTriageRequest(BaseModel):
-    enabled: bool
-
-
-@router.post("/auto-triage")
-async def set_auto_triage(req: AutoTriageRequest):
-    """Set the auto-triage toggle.
-
-    When toggled ON, all currently queued investigations are immediately
-    kicked off, and any new issues arriving via webhook will be auto-started.
-    When toggled OFF, new issues just land in the Queue.
-    """
-    investigation_store.auto_triage = req.enabled
-    logger.info("Auto-triage toggled %s", "ON" if req.enabled else "OFF")
-
-    await event_bus.publish(SSEEvent(
-        event_type="auto_triage_changed",
-        investigation_id="SYSTEM",
-        data={"enabled": req.enabled},
-    ))
-
-    started_ids: list[str] = []
-    if req.enabled:
-        # Kick off all currently queued investigations
-        started_ids = await _start_all_queued()
-
-    return {"status": "ok", "enabled": req.enabled, "started": len(started_ids), "investigation_ids": started_ids}
-
-
 @router.post("/investigate-all")
 async def investigate_all_queued():
-    """Kick off investigations for ALL queued items at once.
-
-    Used during demos to move everything from Queue → In Progress in one click.
-    Each queued investigation gets a Devin session (or simulated investigation
-    if the Devin API is unavailable).
-    """
+    """Kick off investigations for ALL queued items at once."""
     started_ids = await _start_all_queued()
     return {"status": "ok", "started": len(started_ids), "investigation_ids": started_ids}
 
 
 async def _start_all_queued() -> list[str]:
-    """Start Devin investigations for every QUEUED item. Returns list of started IDs."""
+    """Start Devin investigations for every QUEUED item. Returns list of started IDs.
+
+    Includes retry with exponential backoff for 429 rate-limit responses.
+    """
     queued = investigation_store.get_investigations_by_status(InvestigationStatus.QUEUED)
     if not queued:
         return []
 
     started: list[str] = []
     for investigation in queued:
-        try:
-            session_id = await _start_investigation(investigation)
-            started.append(investigation.id)
-        except Exception as e:
-            logger.error(f"Failed to start investigation {investigation.id}: {e}")
+        for attempt in range(4):  # up to 4 attempts (initial + 3 retries)
+            try:
+                session_id = await _start_investigation(investigation)
+                started.append(investigation.id)
+                break
+            except Exception as e:
+                is_rate_limit = "429" in str(e)
+                if is_rate_limit and attempt < 3:
+                    wait = 2 ** attempt  # 1s, 2s, 4s
+                    logger.warning(
+                        "Rate-limited starting %s (attempt %d/4), retrying in %ds",
+                        investigation.id, attempt + 1, wait,
+                    )
+                    await asyncio.sleep(wait)
+                else:
+                    logger.error(f"Failed to start investigation {investigation.id}: {e}")
+                    break
 
     return started
 
@@ -489,133 +465,55 @@ async def simulate_investigation(investigation_id: str, *, post_comment: bool = 
     return {"status": "simulated", "classification": classification.value if classification else "UNKNOWN"}
 
 
-async def _seed_demo_investigations() -> int:
-    """Create brand new GitHub issues on the target repo and seed them into
-    the Queue.
+# Hardcoded list of previously investigated issue numbers from the target repo.
+# These are real closed issues that already went through investigation.
+_SEED_ISSUE_NUMBERS = [24, 25, 26, 27, 28, 29, 30, 31, 32, 33]
 
-    Each reset picks 5 random issue templates from a pool, creates them as
-    real GitHub issues via the API, and adds them to the dashboard Queue.
-    This guarantees the issues are fresh and have never been investigated.
+
+async def _seed_demo_investigations() -> int:
+    """Fetch existing GitHub issues and seed them into In Progress.
+
+    Picks 5 random issues from _SEED_ISSUE_NUMBERS, fetches them from the
+    GitHub API, and adds them to the dashboard as INVESTIGATING so the board
+    looks like there is already an active triage backlog.
+    No new issues are created — these are real, existing issues.
     """
     import random
     from app.services.playbook_router import playbook_router
     from app.services.github_service import github_service
 
-    # Pool of issue templates covering all categories
-    _ISSUE_POOL = [
-        # Bugs
-        {
-            "title": "bug: pagination shows infinite loading spinner on last page",
-            "body": "When navigating to the last page of transactions, the 'Load More' button keeps appearing and triggers infinite loading. The pagination hasMore flag incorrectly returns true when there are no more pages.",
-            "labels": ["bug"],
-        },
-        {
-            "title": "bug: transaction search returns duplicate results when filtering by date range",
-            "body": "Searching transactions with a date range filter returns the same transaction multiple times. This happens because the date overlap query doesn't deduplicate results when a transaction spans midnight UTC.",
-            "labels": ["bug"],
-        },
-        {
-            "title": "bug: dark mode toggle resets on page refresh",
-            "body": "User preference for dark mode is lost on every page refresh. The theme setting is stored in component state but never persisted to localStorage or the user preferences API.",
-            "labels": ["bug"],
-        },
-        {
-            "title": "bug: currency conversion shows stale exchange rates after midnight UTC",
-            "body": "The FX rate cache is set to 24h TTL but never invalidates on date rollover. After midnight UTC, converted amounts use yesterday's rates until the cache expires naturally.",
-            "labels": ["bug"],
-        },
-        {
-            "title": "bug: account balance shows negative after pending transactions are cancelled",
-            "body": "When a pending transaction is cancelled, the available balance calculation double-subtracts the amount — once when it was pending and again during the cancellation reconciliation step.",
-            "labels": ["bug"],
-        },
-        # Features
-        {
-            "title": "feature: add real-time WebSocket notifications for transaction alerts",
-            "body": "Currently, users must manually refresh the dashboard to see new transaction alerts. We need real-time push notifications via WebSocket so that high-value transactions and suspicious activity alerts appear instantly.",
-            "labels": ["enhancement"],
-        },
-        {
-            "title": "feature: add two-factor authentication for wire transfers over $10k",
-            "body": "High-value wire transfers should require a second authentication factor (TOTP or SMS) before submission. Currently any authenticated user can initiate transfers of any amount with just their session token.",
-            "labels": ["enhancement"],
-        },
-        {
-            "title": "feature: export account statements as PDF with custom date range",
-            "body": "Users need the ability to generate and download account statements as PDF documents for any custom date range. Currently only CSV export is supported and only for the current month.",
-            "labels": ["enhancement"],
-        },
-        # Docs
-        {
-            "title": "docs: add API authentication guide for third-party integrations",
-            "body": "We are missing documentation for how third-party services should authenticate against our API. Partners need a clear guide covering OAuth2 flows, API key management, and rate limiting policies.",
-            "labels": ["documentation"],
-        },
-        {
-            "title": "docs: document rate limiting policy for public API endpoints",
-            "body": "The public API has rate limits but they are undocumented. Partners are hitting 429 errors without understanding the limits. We need a clear page documenting per-endpoint rate limits and retry guidance.",
-            "labels": ["documentation"],
-        },
-        # Chores
-        {
-            "title": "chore: migrate legacy CommonJS bridge module to TypeScript ESM",
-            "body": "The legacy API bridge (src/legacy/bridge.js) is the last remaining CommonJS module. It should be migrated to TypeScript with ESM imports to align with the rest of the project and unblock tree-shaking.",
-            "labels": ["chore"],
-        },
-        {
-            "title": "chore: upgrade deprecated bcrypt dependency to v6",
-            "body": "The bcrypt package is pinned at v5.0.1 which has a known CVE. Version 6.x has been stable for months and includes native ARM64 support which would fix our CI build issues on Apple Silicon runners.",
-            "labels": ["chore"],
-        },
-        # Security
-        {
-            "title": "security: CSV export vulnerable to formula injection attacks",
-            "body": "The CSV export in the reporting module does not sanitize cell values. If a transaction description starts with =, +, -, or @, spreadsheet applications interpret it as a formula, enabling potential data exfiltration.",
-            "labels": ["security", "bug"],
-        },
-        {
-            "title": "security: API tokens not invalidated on password change",
-            "body": "When a user changes their password, existing API tokens remain valid. An attacker with a stolen token can continue accessing the API even after the user rotates their password.",
-            "labels": ["security", "bug"],
-        },
-    ]
-
-    # Pick 5 random issues from the pool
-    selected = random.sample(_ISSUE_POOL, min(5, len(_ISSUE_POOL)))
-
+    selected_numbers = random.sample(_SEED_ISSUE_NUMBERS, min(5, len(_SEED_ISSUE_NUMBERS)))
     seeded = 0
-    for template in selected:
-        # Create a real GitHub issue
-        gh_issue = await github_service.create_issue(
-            title=template["title"],
-            body=template["body"],
-            labels=template["labels"],
-        )
 
+    for issue_number in selected_numbers:
+        gh_issue = await github_service.get_issue(issue_number)
         if not gh_issue:
-            logger.warning(f"Failed to create GitHub issue: {template['title']}")
+            logger.warning("Failed to fetch GitHub issue #%d for seeding", issue_number)
             continue
 
-        issue_number = gh_issue["number"]
-        issue_url = gh_issue["html_url"]
+        issue_title = gh_issue.get("title", "")
+        issue_body = gh_issue.get("body", "") or ""
+        issue_url = gh_issue.get("html_url", "")
         issue_labels = [l["name"] if isinstance(l, dict) else l for l in gh_issue.get("labels", [])]
 
         inv = await investigation_store.create_investigation(
             issue_number=issue_number,
-            issue_title=template["title"],
-            issue_body=template["body"],
+            issue_title=issue_title,
+            issue_body=issue_body,
             issue_url=issue_url,
             issue_labels=issue_labels,
         )
 
-        # Resolve playbook info so the badge shows on the card
+        # Resolve playbook for the badge
         _issue_type, _playbook_id, _playbook_name = playbook_router.resolve_playbook(
-            template["title"], issue_labels
+            issue_title, issue_labels
         )
         await investigation_store.update_investigation(
             inv.id,
+            status=InvestigationStatus.INVESTIGATING,
             playbook_name=_playbook_name,
             playbook_id=_playbook_id,
+            started_at=time.time(),
         )
         seeded += 1
 
