@@ -941,8 +941,18 @@ async def _seed_demo_investigations() -> int:
     while len(selected) < target_count and remaining:
         selected.append(remaining.pop(0))
 
+    # Look up open PRs on the demo repo so we can link one to a PENDING_REVIEW card
+    pr_url_for_pending: str | None = None
+    try:
+        open_prs = await github_service.list_pull_requests(state="open", per_page=10)
+        if open_prs:
+            pr_url_for_pending = open_prs[0].get("html_url")
+    except Exception:
+        pass
+
     # Seed each selected candidate
     now = time.time()
+    pending_review_seeded = False
     for candidate in selected:
         inv = await investigation_store.create_investigation(
             issue_number=candidate["issue_number"],
@@ -973,22 +983,49 @@ async def _seed_demo_investigations() -> int:
         else:
             priority = random.randint(20, 39)
 
-        await investigation_store.update_investigation(
-            inv.id,
-            status=InvestigationStatus.INVESTIGATION_COMPLETE,
-            playbook_name=_playbook_name,
-            playbook_id=_playbook_id,
-            investigation_report=report,
-            classification=report.classification,
-            devin_session_url=candidate.get("session_url", ""),
-            started_at=now - random.uniform(30, 120),
-            completed_at=now,
-            priority=priority,
-        )
+        # Promote the first AUTO_FIX candidate to PENDING_REVIEW with a real PR link
+        if (
+            not pending_review_seeded
+            and report.classification == InvestigationClassification.AUTO_FIX
+            and pr_url_for_pending
+        ):
+            # Add fix telemetry steps (all completed)
+            fix_steps = inv.get_fix_telemetry()
+            for step in fix_steps:
+                step.status = "completed"
+                step.timestamp = now
+            await investigation_store.update_investigation(
+                inv.id,
+                status=InvestigationStatus.PENDING_REVIEW,
+                playbook_name=_playbook_name,
+                playbook_id=_playbook_id,
+                investigation_report=report,
+                classification=report.classification,
+                devin_session_url=candidate.get("session_url", ""),
+                pr_url=pr_url_for_pending,
+                started_at=now - random.uniform(30, 120),
+                completed_at=now,
+                priority=priority,
+                telemetry=inv.telemetry + fix_steps,
+            )
+            pending_review_seeded = True
+        else:
+            await investigation_store.update_investigation(
+                inv.id,
+                status=InvestigationStatus.INVESTIGATION_COMPLETE,
+                playbook_name=_playbook_name,
+                playbook_id=_playbook_id,
+                investigation_report=report,
+                classification=report.classification,
+                devin_session_url=candidate.get("session_url", ""),
+                started_at=now - random.uniform(30, 120),
+                completed_at=now,
+                priority=priority,
+            )
 
         seeded += 1
 
-    logger.info("Seeded %d investigations from real Devin sessions", seeded)
+    logger.info("Seeded %d investigations from real Devin sessions (%s pending review)", seeded, "1" if pending_review_seeded else "0")
     return seeded
 
 
