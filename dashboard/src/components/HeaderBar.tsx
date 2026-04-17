@@ -36,10 +36,10 @@ export function HeaderBar({ active, completed, queued, total, resolvedToday, upt
       <div className="flex items-center justify-between">
         {/* Left: Title & Status */}
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2.5">
-            <img src="/capybara-logo.png" alt="Capybara Bank" className="w-8 h-8 rounded-lg object-cover" />
+          <div className="flex items-center gap-3">
+            <img src="/capybara-logo.png" alt="Capybara Bank" className="w-11 h-11 rounded-xl object-cover" />
             <div>
-              <h1 className="text-base font-semibold text-app-text">
+              <h1 className="text-lg font-semibold text-app-text leading-tight">
                 Capybara Bank
               </h1>
               <p className="text-xs text-app-text-muted">Automated Issue Triage</p>
