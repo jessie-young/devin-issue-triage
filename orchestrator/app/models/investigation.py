@@ -61,6 +61,7 @@ class Investigation(BaseModel):
     status: InvestigationStatus = InvestigationStatus.QUEUED
     classification: Optional[InvestigationClassification] = None
     devin_session_id: Optional[str] = None
+    devin_session_url: Optional[str] = None
     fix_session_id: Optional[str] = None
     investigation_report: Optional[InvestigationReport] = None
     telemetry: list[TelemetryStep] = Field(default_factory=list)

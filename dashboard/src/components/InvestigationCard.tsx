@@ -40,14 +40,21 @@ function nextStepText(classification: InvestigationClassification | null): strin
   }
 }
 
-function statusDot(status: string) {
+function statusDot(status: string, telemetry?: TelemetryStep[]) {
   switch (status) {
     case 'QUEUED':
       return <Circle className="w-3 h-3 text-app-primary animate-pulse-soft fill-app-primary/20" />;
     case 'INVESTIGATING':
     case 'FIX_IN_PROGRESS':
-    case 'LAUNCHING':
+    case 'LAUNCHING': {
+      // If all telemetry steps are completed, show a check instead of spinner
+      // (the status transition may lag behind the telemetry updates)
+      const allDone = telemetry && telemetry.length > 0 && telemetry.every(s => s.status === 'completed');
+      if (allDone) {
+        return <CheckCircle2 className="w-3 h-3 text-app-warning" />;
+      }
       return <Loader2 className="w-3 h-3 text-app-warning animate-spin" />;
+    }
     case 'INVESTIGATION_COMPLETE':
       return <CheckCircle2 className="w-3 h-3 text-app-warning" />;
     case 'PENDING_REVIEW':
@@ -163,7 +170,7 @@ export function InvestigationCard({ investigation, onLaunch, onApprove, compact 
       {/* Header */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
-          {statusDot(investigation.status)}
+          {statusDot(investigation.status, investigation.telemetry)}
           <span className="text-xs font-mono text-app-primary font-semibold">{investigation.id}</span>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -274,8 +281,8 @@ export function InvestigationCard({ investigation, onLaunch, onApprove, compact 
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
               className={`px-3 py-1.5 rounded-md text-xs font-semibold
-                ${investigation.classification === 'ESCALATE' ? 'bg-app-danger' : 'bg-app-warning'} text-white
-                hover:opacity-90
+                bg-app-primary text-white
+                hover:bg-app-primary-hover
                 transition-all duration-200
                 inline-flex items-center gap-1.5 shadow-sm`}
             >
@@ -305,8 +312,8 @@ export function InvestigationCard({ investigation, onLaunch, onApprove, compact 
                 <button
                   onClick={(e) => { e.stopPropagation(); onApprove(investigation.id); }}
                   className="px-3 py-1.5 rounded-md text-xs font-semibold
-                    bg-app-success text-white
-                    hover:bg-app-success/90
+                    bg-app-primary text-white
+                    hover:bg-app-primary-hover
                     transition-all duration-200
                     inline-flex items-center gap-1.5 shadow-sm"
                 >

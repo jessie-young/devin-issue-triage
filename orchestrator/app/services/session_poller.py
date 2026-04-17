@@ -43,10 +43,13 @@ FIX_TELEMETRY_KEYWORDS = {
 
 def _parse_investigation_report(messages: list[dict]) -> Optional[InvestigationReport]:
     """Parse structured investigation output from Devin's messages."""
+    # Filter out user prompt messages — they contain template keywords
+    # (e.g. "COMPLEXITY: low / medium / high") that would cause incorrect
+    # regex matches and override Devin's actual findings.
     full_text = "\n".join(
         m.get("content", "") or m.get("message", "") or ""
         for m in messages
-        if isinstance(m, dict)
+        if isinstance(m, dict) and m.get("source") != "user"
     )
 
     if not full_text:
@@ -155,6 +158,18 @@ class SessionPoller:
         )
         self._active_tasks[task_key] = task
 
+    def cancel_all(self) -> int:
+        """Cancel all active polling tasks. Returns count cancelled."""
+        count = 0
+        for task_key, task in list(self._active_tasks.items()):
+            if not task.done():
+                task.cancel()
+                count += 1
+        self._active_tasks.clear()
+        self._seen_messages.clear()
+        logger.info("Cancelled %d active polling tasks", count)
+        return count
+
     async def _poll_loop(self, investigation_id: str, session_id: str, phase: str) -> None:
         """Main polling loop for a session."""
         task_key = f"{investigation_id}:{phase}"
@@ -181,6 +196,11 @@ class SessionPoller:
 
                     # Process new messages for telemetry
                     for msg in new_messages:
+                        # Skip our own prompt messages — they contain all the
+                        # telemetry keywords and would instantly mark every step
+                        # as completed.  Only Devin's responses carry real progress.
+                        if msg.get("source") == "user":
+                            continue
                         text = msg.get("content", "") or msg.get("message", "") or ""
                         if not text:
                             continue
@@ -201,8 +221,31 @@ class SessionPoller:
                             data={"text": preview},
                         ))
 
-                    # Check if session is finished
-                    if session_status in ("finished", "stopped", "failed"):
+                    # Check if session is finished (or suspended — Devin
+                    # sessions may be suspended when ACUs run out).
+                    is_terminal = session_status in (
+                        "finished", "stopped", "failed", "suspended",
+                    )
+
+                    # Also detect early completion: if Devin has already
+                    # produced a full investigation report in its messages
+                    # the session may stay "running" for a while before
+                    # transitioning.  We can handle the report immediately.
+                    report_ready = False
+                    if not is_terminal and phase == "investigation":
+                        full_text = "\n".join(
+                            m.get("content", "") or m.get("message", "") or ""
+                            for m in messages
+                            if isinstance(m, dict) and m.get("source") != "user"
+                        )
+                        if "INVESTIGATION REPORT" in full_text and "CLASSIFICATION" in full_text:
+                            report_ready = True
+                            logger.info(
+                                "Report detected in messages for %s while session still %s — completing early",
+                                investigation_id, session_status,
+                            )
+
+                    if is_terminal or report_ready:
                         if phase == "investigation":
                             await self._handle_investigation_complete(
                                 investigation_id, session_id, messages

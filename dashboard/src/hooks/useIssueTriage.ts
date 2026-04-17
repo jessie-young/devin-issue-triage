@@ -16,6 +16,11 @@ export function useIssueTriage() {
   const eventSourceRef = useRef<EventSource | null>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Guard against stale fetchState responses: only apply data from the latest request
+  const fetchSeqRef = useRef(0);
+  // Debounce timer for fetchState to coalesce rapid SSE-triggered refetches
+  const fetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const addLogEntry = useCallback((investigationId: string, text: string) => {
     setTelemetryLog(prev => {
       const entry: TelemetryLogEntry = {
@@ -48,11 +53,16 @@ export function useIssueTriage() {
     });
   }, []);
 
-  // Fetch initial state
-  const fetchState = useCallback(async () => {
+  // Fetch full state from the backend.
+  // Uses a sequence counter so that if multiple requests are in-flight, only
+  // the newest response is applied (prevents stale data from overwriting fresh).
+  const fetchStateNow = useCallback(async () => {
+    const seq = ++fetchSeqRef.current;
     try {
       const resp = await fetch(`${API_BASE}/investigations/state`);
       if (!resp.ok) return;
+      // Discard this response if a newer fetch was started while we waited
+      if (seq !== fetchSeqRef.current) return;
       const data: DashboardState = await resp.json();
       setInvestigations(data.investigations);
       setStats(data.stats);
@@ -61,6 +71,26 @@ export function useIssueTriage() {
       // Will retry on reconnect
     }
   }, []);
+
+  // Debounced version: coalesces rapid calls (e.g. multiple SSE events within
+  // 300ms) into a single network request so the UI doesn't flicker.
+  const fetchState = useCallback(() => {
+    if (fetchDebounceRef.current) clearTimeout(fetchDebounceRef.current);
+    fetchDebounceRef.current = setTimeout(() => {
+      fetchDebounceRef.current = null;
+      fetchStateNow();
+    }, 300);
+  }, [fetchStateNow]);
+
+  // Immediate variant for user-initiated actions (reset, approve, etc.)
+  // where we want instant feedback.
+  const fetchStateImmediate = useCallback(async () => {
+    if (fetchDebounceRef.current) {
+      clearTimeout(fetchDebounceRef.current);
+      fetchDebounceRef.current = null;
+    }
+    await fetchStateNow();
+  }, [fetchStateNow]);
 
   // Fetch auto-triage state on mount
   useEffect(() => {
@@ -72,7 +102,7 @@ export function useIssueTriage() {
 
   // Connect to SSE
   useEffect(() => {
-    fetchState();
+    fetchStateNow();
 
     const connect = () => {
       const es = new EventSource(`${API_BASE}/investigations/stream`);
@@ -175,14 +205,22 @@ export function useIssueTriage() {
 
     connect();
 
+    // Fallback poll every 30s in case SSE connection is silently dropped
+    const fallbackPoll = setInterval(() => { fetchStateNow(); }, 30_000);
+
     return () => {
       eventSourceRef.current?.close();
+      clearInterval(fallbackPoll);
+      if (fetchDebounceRef.current) {
+        clearTimeout(fetchDebounceRef.current);
+        fetchDebounceRef.current = null;
+      }
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
       }
     };
-  }, [fetchState, addLogEntry, recalcStats]);
+  }, [fetchStateNow, fetchState, addLogEntry, recalcStats]);
 
   // Launch a fix
   const launchFix = useCallback(async (investigationId: string) => {
@@ -207,14 +245,14 @@ export function useIssueTriage() {
         throw new Error(err.detail || 'Launch failed');
       }
       addLogEntry(investigationId, 'Apply Fix initiated');
-      await fetchState();
+      await fetchStateImmediate();
       // Poll for updates during fix (every 3s for 60s)
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
       let polls = 0;
       pollIntervalRef.current = setInterval(async () => {
         polls++;
         try {
-          await fetchState();
+          await fetchStateImmediate();
         } catch {
           // Network error during poll — will retry on next tick
         }
@@ -226,9 +264,9 @@ export function useIssueTriage() {
     } catch (err) {
       addLogEntry(investigationId, `Launch error: ${err}`);
       // Revert optimistic update on error
-      await fetchState();
+      await fetchStateImmediate();
     }
-  }, [addLogEntry, fetchState, recalcStats]);
+  }, [addLogEntry, fetchStateImmediate, recalcStats]);
 
   // Reset all investigations (clear the board)
   const resetInvestigations = useCallback(async () => {
@@ -239,11 +277,11 @@ export function useIssueTriage() {
         throw new Error(err.detail || 'Reset failed');
       }
       addLogEntry('SYSTEM', 'Dashboard reset requested');
-      await fetchState();
+      await fetchStateImmediate();
     } catch (err) {
       addLogEntry('SYSTEM', `Reset error: ${err}`);
     }
-  }, [addLogEntry, fetchState]);
+  }, [addLogEntry, fetchStateImmediate]);
 
   // Kick off all queued investigations at once
   const investigateAll = useCallback(async () => {
@@ -269,14 +307,14 @@ export function useIssueTriage() {
       }
       const data = await resp.json();
       addLogEntry('SYSTEM', `Started ${data.started} investigations`);
-      await fetchState();
+      await fetchStateImmediate();
       // Poll for updates as investigations complete
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
       let polls = 0;
       pollIntervalRef.current = setInterval(async () => {
         polls++;
         try {
-          await fetchState();
+          await fetchStateImmediate();
         } catch {
           // Network error during poll — will retry on next tick
         }
@@ -287,9 +325,9 @@ export function useIssueTriage() {
       }, 3000);
     } catch (err) {
       addLogEntry('SYSTEM', `Investigate all error: ${err}`);
-      await fetchState();
+      await fetchStateImmediate();
     }
-  }, [addLogEntry, fetchState, recalcStats]);
+  }, [addLogEntry, fetchStateImmediate, recalcStats]);
 
   // Approve a PENDING_REVIEW investigation and move to Resolved
   const approveInvestigation = useCallback(async (investigationId: string) => {
@@ -314,12 +352,12 @@ export function useIssueTriage() {
         throw new Error(err.detail || 'Approve failed');
       }
       addLogEntry(investigationId, 'Investigation approved and resolved');
-      await fetchState();
+      await fetchStateImmediate();
     } catch (err) {
       addLogEntry(investigationId, `Approve error: ${err}`);
-      await fetchState();
+      await fetchStateImmediate();
     }
-  }, [addLogEntry, fetchState, recalcStats]);
+  }, [addLogEntry, fetchStateImmediate, recalcStats]);
 
   // Toggle auto-triage
   const toggleAutoTriage = useCallback(async () => {
@@ -337,11 +375,11 @@ export function useIssueTriage() {
         throw new Error(err.detail || 'Toggle failed');
       }
       addLogEntry('SYSTEM', `Auto-triage ${newValue ? 'enabled' : 'disabled'}`);
-      await fetchState();
+      await fetchStateImmediate();
     } catch (err) {
       addLogEntry('SYSTEM', `Auto-triage toggle error: ${err}`);
     }
-  }, [autoTriage, addLogEntry, fetchState]);
+  }, [autoTriage, addLogEntry, fetchStateImmediate]);
 
   // File a manual investigation
   const fileInvestigation = useCallback(async (issueInput: string) => {
@@ -363,11 +401,11 @@ export function useIssueTriage() {
       }
       const data = await resp.json();
       addLogEntry(data.investigation_id, 'Manual investigation filed');
-      await fetchState();
+      await fetchStateImmediate();
     } catch (err) {
       addLogEntry('SYSTEM', `File investigation error: ${err}`);
     }
-  }, [addLogEntry, fetchState]);
+  }, [addLogEntry, fetchStateImmediate]);
 
   return {
     investigations,

@@ -23,6 +23,15 @@ class InvestigationStore:
         self._investigations: dict[str, Investigation] = {}
         self._uptime_start: float = time.time()
         self._auto_triage: bool = False
+        self._seeding: bool = False
+
+    @property
+    def seeding(self) -> bool:
+        return self._seeding
+
+    @seeding.setter
+    def seeding(self, value: bool) -> None:
+        self._seeding = value
 
     @property
     def auto_triage(self) -> bool:

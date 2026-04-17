@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 
 from fastapi import APIRouter, HTTPException
@@ -66,21 +67,40 @@ async def get_recent_events(limit: int = 100):
 @router.get("/stream")
 async def sse_stream():
     """SSE endpoint for real-time dashboard updates."""
-    return EventSourceResponse(event_bus.subscribe())
+    return EventSourceResponse(event_bus.subscribe(), ping=15)
 
 
 @router.post("/reset")
 async def reset_investigations():
-    """Clear all investigations and reset the dashboard, then seed demo data.
+    """Clear all investigations and reset the dashboard, then seed with real data.
 
-    Used to restart the demo from a clean slate. The in-memory store is
-    wiped, then 4 pre-investigated items are seeded into "In Progress"
-    (INVESTIGATION_COMPLETE) so the board always has realistic data to demo
-    the "initial backlog triage" capability. New live issues filed via webhook
-    will appear alongside these seed items.
+    Used to restart the demo from a clean slate:
+    1. Stop all old Devin sessions to free API capacity.
+    2. Wipe the in-memory store.
+    3. Seed the board with existing already-investigated GitHub issues
+       (fetched from real Devin sessions) so the board shows realistic data
+       without creating new issues or Devin sessions.
     """
+    # Cancel all active polling tasks so stale pollers don't overwrite
+    # freshly seeded investigations after the store is cleared.
+    session_poller.cancel_all()
+
+    # Stop old sessions to free capacity for new investigations
+    if devin_client.is_configured:
+        try:
+            stopped = await devin_client.stop_all_running_sessions()
+            logger.info("Reset: stopped %d old Devin sessions", stopped)
+        except Exception as e:
+            logger.warning("Failed to stop old sessions on reset: %s", e)
+
+    # Set seeding lock BEFORE clear_all() so webhooks that fire during
+    # the async clear (e.g. from event_bus.publish) are also blocked.
+    investigation_store.seeding = True
     cleared = await investigation_store.clear_all()
-    seeded = await _seed_demo_investigations()
+    try:
+        seeded = await _seed_demo_investigations()
+    finally:
+        investigation_store.seeding = False
     return {"status": "ok", "cleared": cleared, "seeded": seeded}
 
 
@@ -184,6 +204,11 @@ async def launch_fix(req: LaunchFixRequest):
     if not report:
         raise HTTPException(status_code=400, detail="No investigation report available")
 
+    # Check API availability BEFORE mutating state so the investigation
+    # doesn't get stuck in LAUNCHING if the API is not configured.
+    if not devin_client.is_configured:
+        raise HTTPException(status_code=503, detail="Devin API is not configured")
+
     # Preserve completed investigation telemetry, then append fix-phase steps
     completed_investigation_steps = [
         step.model_copy() for step in investigation.telemetry if step.status == "completed"
@@ -197,12 +222,50 @@ async def launch_fix(req: LaunchFixRequest):
         started_at=time.time(),
     )
 
-    # Simulate the fix process in the background with stepped delays
-    # so the UI shows realistic progression without waiting for a real Devin session.
-    task = asyncio.create_task(_simulate_fix_flow(req.investigation_id))
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
-    return {"status": "launched", "investigation_id": req.investigation_id}
+    try:
+        session_data = await devin_client.create_fix_session(
+            issue_number=investigation.issue_number,
+            issue_title=investigation.issue_title,
+            issue_body=investigation.issue_body or "",
+            repo=settings.target_repo,
+            investigation_summary=report.summary or "",
+            root_cause=report.root_cause or "",
+            recommended_fix=report.recommended_fix or "",
+            playbook_id=investigation.playbook_id,
+        )
+        session_id = session_data.get("session_id", "")
+        session_url = session_data.get("url", "")
+        logger.info(
+            "Created real Devin fix session %s for %s: %s",
+            session_id, req.investigation_id, session_url,
+        )
+
+        await investigation_store.update_investigation(
+            req.investigation_id,
+            status=InvestigationStatus.FIX_IN_PROGRESS,
+            fix_session_id=session_id,
+            devin_session_url=session_url,
+        )
+        await event_bus.publish(SSEEvent(
+            event_type="investigation_updated",
+            investigation_id=req.investigation_id,
+            data={"status": InvestigationStatus.FIX_IN_PROGRESS.value},
+        ))
+
+        # Start background polling of the fix session
+        await session_poller.start_polling(req.investigation_id, session_id, phase="fix")
+        return {"status": "launched", "investigation_id": req.investigation_id, "session_id": session_id}
+    except Exception as e:
+        logger.error(
+            "Failed to create Devin fix session for %s: %s",
+            req.investigation_id, e,
+        )
+        await investigation_store.update_investigation(
+            req.investigation_id,
+            status=InvestigationStatus.FAILED,
+            error=f"Failed to create Devin fix session: {e}",
+        )
+        raise HTTPException(status_code=502, detail=f"Failed to create Devin fix session: {e}")
 
 
 async def _simulate_fix_flow(investigation_id: str) -> None:
@@ -227,13 +290,13 @@ async def _simulate_fix_flow(investigation_id: str) -> None:
         await investigation_store.update_investigation(
             investigation_id,
             status=InvestigationStatus.PENDING_REVIEW,
-            pr_url=f"https://github.com/{settings.target_repo}/pull/0",
+            pr_url=None,  # No real PR in simulation mode
             completed_at=time.time(),
         )
         await event_bus.publish(SSEEvent(
             event_type="fix_pending_review",
             investigation_id=investigation_id,
-            data={"pr_url": f"https://github.com/{settings.target_repo}/pull/0", "simulated": True},
+            data={"pr_url": None, "simulated": True},
         ))
     except Exception as e:
         logger.error(f"Simulated fix flow failed for {investigation_id}: {e}")
@@ -387,8 +450,7 @@ async def _start_investigation(investigation) -> str:
     """Start an investigation for a GitHub issue.
 
     Resolves the playbook, updates the investigation to INVESTIGATING, and
-    kicks off a background simulation that progresses telemetry steps with
-    short delays and completes with a simulated report.
+    creates a real Devin session.  Requires the Devin API to be configured.
     """
     from app.services.playbook_router import playbook_router as _pb_router
     _issue_type, _playbook_id, _playbook_name = _pb_router.resolve_playbook(
@@ -400,6 +462,9 @@ async def _start_investigation(investigation) -> str:
         playbook_id=_playbook_id,
     )
 
+    if not devin_client.is_configured:
+        raise RuntimeError("Devin API is not configured — cannot start investigation")
+
     await investigation_store.update_investigation(
         investigation.id,
         status=InvestigationStatus.INVESTIGATING,
@@ -407,11 +472,43 @@ async def _start_investigation(investigation) -> str:
     )
     await investigation_store.update_telemetry_step(investigation.id, "ingest", "completed")
 
-    # Run investigation simulation in background so the webhook returns immediately
-    task = asyncio.create_task(_simulate_investigation_flow(investigation.id))
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
-    return "simulated"
+    try:
+        session_data = await devin_client.create_investigation_session(
+            issue_number=investigation.issue_number,
+            issue_title=investigation.issue_title,
+            issue_body=investigation.issue_body or "",
+            repo=settings.target_repo,
+            playbook_id=_playbook_id,
+            issue_type=_issue_type,
+        )
+        session_id = session_data.get("session_id", "")
+        session_url = session_data.get("url", "")
+        logger.info(
+            "Created real Devin session %s for investigation %s: %s",
+            session_id, investigation.id, session_url,
+        )
+
+        # Store the session URL on the investigation for linking in the UI
+        await investigation_store.update_investigation(
+            investigation.id,
+            devin_session_id=session_id,
+            devin_session_url=session_url,
+        )
+
+        # Start background polling of the session
+        await session_poller.start_polling(investigation.id, session_id, phase="investigation")
+        return session_id
+    except Exception as e:
+        logger.error(
+            "Failed to create Devin investigation session for %s: %s",
+            investigation.id, e,
+        )
+        await investigation_store.update_investigation(
+            investigation.id,
+            status=InvestigationStatus.FAILED,
+            error=f"Failed to create Devin session: {e}",
+        )
+        raise
 
 
 async def _simulate_investigation_flow(investigation_id: str) -> None:
@@ -587,7 +684,7 @@ _SEED_TEMPLATES: list[dict] = [
             related_issues=[],
         ),
         "priority": 90,
-        "seed_as": "in_progress",  # P0 security — always seeded
+        # No seed_as — user wants to file this one manually during demo
     },
     {
         "title": "feature: support multi-currency cross-border transfers",
@@ -737,127 +834,161 @@ _DRAFT_PR_URL = "https://github.com/jessie-young/demo-finserv-repo/pull/113"
 
 
 async def _seed_demo_investigations() -> int:
-    """Create brand-new GitHub issues and seed them as completed investigations.
+    """Seed the dashboard with existing already-investigated GitHub issues.
 
-    Seeds a **fixed** set of issues from _SEED_TEMPLATES based on their
-    ``seed_as`` marker so the dashboard always shows the same diverse set
-    after Reset:
+    Fetches recent Devin sessions that have completed investigation reports,
+    matches them to their GitHub issues, and pre-populates the board with
+    real data.  No new GitHub issues or Devin sessions are created.
 
-    - ``seed_as="in_progress"`` → INVESTIGATION_COMPLETE (In Progress column)
-    - ``seed_as="pending_review"`` → PENDING_REVIEW with draft PR link
-    - ``seed_as="stale_close"`` → INVESTIGATION_COMPLETE with close recommendation
-    - Templates without a ``seed_as`` marker are **not** seeded on Reset.
+    Picks a diverse mix: bugs, features, docs — with varied classifications
+    (AUTO_FIX, NEEDS_REVIEW, ESCALATE) and priorities.
     """
     import random
     from app.services.playbook_router import playbook_router
+    from app.services.session_poller import _parse_investigation_report
 
-    # Select only templates that have an explicit seed_as marker
-    selected = [t for t in _SEED_TEMPLATES if t.get("seed_as")]
+    if not devin_client.is_configured:
+        logger.warning("Devin API not configured — cannot seed from real sessions")
+        return 0
+
+    # Fetch recent Devin sessions
+    try:
+        sessions = await devin_client.list_sessions(limit=100)
+    except Exception as e:
+        logger.error("Failed to list Devin sessions for seeding: %s", e)
+        return 0
+
+    # Filter to investigation sessions (title contains 'Investigate')
+    inv_sessions = [
+        s for s in sessions
+        if "investigate" in (s.get("title") or "").lower()
+        and s.get("session_id")
+    ]
+
+    # Try to get a diverse set — collect sessions by issue type
     seeded = 0
+    seen_titles: set[str] = set()  # deduplicate by normalized title
+    target_count = 5
+    candidates: list[dict] = []  # list of {session, messages, report, issue_data}
 
-    for template in selected:
-        # Create a brand-new GitHub issue
-        gh_issue = await github_service.create_issue(
-            title=template["title"],
-            body=template["body"],
-            labels=template.get("labels"),
-        )
-        if not gh_issue:
-            logger.warning("Failed to create seed issue: %s", template["title"])
+    for session_info in inv_sessions:
+        if len(candidates) >= target_count * 2:  # gather extra for diversity selection
+            break
+
+        session_id = session_info["session_id"]
+
+        # Extract issue number from session title
+        title = session_info.get("title", "")
+        issue_match = re.search(r"#(\d+)", title)
+        if not issue_match:
+            continue
+        issue_number = int(issue_match.group(1))
+
+        try:
+            messages = await devin_client.get_session_messages(session_id)
+        except Exception:
             continue
 
-        issue_number = gh_issue["number"]
-        issue_title = gh_issue.get("title", template["title"])
-        issue_body = gh_issue.get("body", "") or ""
-        issue_url = gh_issue.get("html_url", "")
-        issue_labels = [l["name"] if isinstance(l, dict) else l for l in gh_issue.get("labels", [])]
+        # Only use sessions where Devin produced a full report
+        devin_messages = [m for m in messages if m.get("source") != "user"]
+        report = _parse_investigation_report(devin_messages)
+        if not report or not report.classification:
+            continue
 
+        # Fetch the actual GitHub issue data
+        try:
+            gh_issue = await github_service.get_issue(issue_number)
+        except Exception:
+            continue
+        if not gh_issue:
+            continue
+
+        # Deduplicate by normalized title (skip duplicates of same bug)
+        norm_title = gh_issue.get("title", "").lower().strip()
+        if norm_title in seen_titles:
+            continue
+        seen_titles.add(norm_title)
+
+        candidates.append({
+            "session_id": session_id,
+            "session_url": session_info.get("url", ""),
+            "report": report,
+            "issue_number": issue_number,
+            "issue_title": gh_issue.get("title", ""),
+            "issue_body": gh_issue.get("body", "") or "",
+            "issue_url": gh_issue.get("html_url", ""),
+            "issue_labels": [
+                l["name"] if isinstance(l, dict) else l
+                for l in gh_issue.get("labels", [])
+            ],
+        })
+
+    # Select a diverse mix: try to get different classifications and issue types
+    selected: list[dict] = []
+    by_classification: dict[str, list[dict]] = {}
+    for c in candidates:
+        cls_val = c["report"].classification.value if c["report"].classification else "UNKNOWN"
+        by_classification.setdefault(cls_val, []).append(c)
+
+    # Take at least one from each classification if available
+    for cls_name, items in by_classification.items():
+        if len(selected) < target_count and items:
+            selected.append(items.pop(0))
+
+    # Fill remaining slots from all candidates
+    remaining = [c for c in candidates if c not in selected]
+    random.shuffle(remaining)
+    while len(selected) < target_count and remaining:
+        selected.append(remaining.pop(0))
+
+    # Seed each selected candidate
+    now = time.time()
+    for candidate in selected:
         inv = await investigation_store.create_investigation(
-            issue_number=issue_number,
-            issue_title=issue_title,
-            issue_body=issue_body,
-            issue_url=issue_url,
-            issue_labels=issue_labels,
+            issue_number=candidate["issue_number"],
+            issue_title=candidate["issue_title"],
+            issue_body=candidate["issue_body"],
+            issue_url=candidate["issue_url"],
+            issue_labels=candidate["issue_labels"],
         )
 
-        report: InvestigationReport = template["report"]
-        priority: int = template.get("priority", 50)
+        report = candidate["report"]
 
-        # Resolve playbook for the badge
+        # Resolve playbook
         _issue_type, _playbook_id, _playbook_name = playbook_router.resolve_playbook(
-            issue_title, issue_labels
+            candidate["issue_title"], candidate["issue_labels"]
         )
 
         # Mark all investigation telemetry steps as completed
         for step in inv.telemetry:
             step.status = "completed"
-            step.timestamp = time.time()
+            step.timestamp = now
 
-        now = time.time()
-
-        # Determine seed mode from the template marker
-        seed_mode = template.get("seed_as", "in_progress")
-        is_pending_review = seed_mode == "pending_review"
-        is_stale = seed_mode == "stale_close"
-
-        if is_pending_review:
-            # Seed as PENDING_REVIEW with fix telemetry and draft PR link
-            from app.models.investigation import TelemetryStep
-            fix_steps = [
-                TelemetryStep(id="fix_start", label="Writing Fix", status="completed", timestamp=now),
-                TelemetryStep(id="test_write", label="Writing Regression Test", status="completed", timestamp=now),
-                TelemetryStep(id="test_run", label="Running Test Suite", status="completed", timestamp=now),
-                TelemetryStep(id="pr_open", label="Opening PR", status="completed", timestamp=now),
-                TelemetryStep(id="resolved", label="Resolved", status="completed", timestamp=now),
-            ]
-            all_telemetry = list(inv.telemetry) + fix_steps
-            await investigation_store.update_investigation(
-                inv.id,
-                status=InvestigationStatus.PENDING_REVIEW,
-                playbook_name=_playbook_name,
-                playbook_id=_playbook_id,
-                investigation_report=report,
-                classification=report.classification,
-                telemetry=all_telemetry,
-                pr_url=_DRAFT_PR_URL,
-                started_at=now - random.uniform(30, 120),
-                completed_at=now,
-                priority=priority,
-            )
+        # Assign priority based on confidence
+        priority = 50
+        if report.fix_confidence >= 80:
+            priority = random.randint(70, 90)
+        elif report.fix_confidence >= 50:
+            priority = random.randint(40, 69)
         else:
-            # Default: seed as INVESTIGATION_COMPLETE
-            await investigation_store.update_investigation(
-                inv.id,
-                status=InvestigationStatus.INVESTIGATION_COMPLETE,
-                playbook_name=_playbook_name,
-                playbook_id=_playbook_id,
-                investigation_report=report,
-                classification=report.classification,
-                started_at=now - random.uniform(30, 120),
-                completed_at=now,
-                priority=priority,
-            )
+            priority = random.randint(20, 39)
 
-        # Post investigation report as a comment on the newly created issue
-        comment_body = None
-        if is_pending_review:
-            comment_body = f"Draft PR with fix: {_DRAFT_PR_URL}"
-        try:
-            await github_service.post_investigation_comment(
-                issue_number=issue_number,
-                investigation_id=inv.id,
-                report=report,
-                playbook_name=_playbook_name,
-                playbook_id=_playbook_id,
-            )
-            # If there's a PR link, post it as a separate comment
-            if comment_body:
-                await github_service.post_comment(issue_number, comment_body)
-        except Exception as e:
-            logger.warning("Failed to post seed comment on #%d: %s", issue_number, e)
+        await investigation_store.update_investigation(
+            inv.id,
+            status=InvestigationStatus.INVESTIGATION_COMPLETE,
+            playbook_name=_playbook_name,
+            playbook_id=_playbook_id,
+            investigation_report=report,
+            classification=report.classification,
+            devin_session_url=candidate.get("session_url", ""),
+            started_at=now - random.uniform(30, 120),
+            completed_at=now,
+            priority=priority,
+        )
 
         seeded += 1
 
+    logger.info("Seeded %d investigations from real Devin sessions", seeded)
     return seeded
 
 
