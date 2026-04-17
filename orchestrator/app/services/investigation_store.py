@@ -75,13 +75,35 @@ class InvestigationStore:
         return investigation
 
     async def update_investigation(self, investigation_id: str, **kwargs) -> Optional[Investigation]:
-        """Update an investigation's fields and broadcast the change."""
+        """Update an investigation's fields and broadcast the change.
+
+        Once an investigation reaches INVESTIGATION_COMPLETE (or later),
+        its classification and priority are locked — callers cannot
+        accidentally flip them via subsequent updates (e.g. when the
+        fix session poller writes back results).
+        """
         investigation = self._investigations.get(investigation_id)
         if not investigation:
             return None
 
+        # Lock classification & priority after investigation is complete
+        _LOCKED_AFTER_INVESTIGATION = {"classification", "priority"}
+        _COMPLETE_STATES = {
+            InvestigationStatus.INVESTIGATION_COMPLETE,
+            InvestigationStatus.LAUNCHING,
+            InvestigationStatus.FIX_IN_PROGRESS,
+            InvestigationStatus.PENDING_REVIEW,
+            InvestigationStatus.RESOLVED,
+            InvestigationStatus.ROUTED,
+            InvestigationStatus.CLOSED,
+        }
+
+        lock_fields = investigation.status in _COMPLETE_STATES
+
         for key, value in kwargs.items():
             if hasattr(investigation, key):
+                if lock_fields and key in _LOCKED_AFTER_INVESTIGATION:
+                    continue  # skip — field is frozen
                 setattr(investigation, key, value)
 
         await event_bus.publish(SSEEvent(

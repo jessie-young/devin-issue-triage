@@ -235,7 +235,9 @@ class SessionPoller:
                             self._seen_messages[task_key].add(msg_id)
                             new_messages.append(msg)
 
-                    # Process new messages for telemetry
+                    # Process new messages for telemetry — enforce sequential
+                    # ordering so steps turn green top-to-bottom, never out of order.
+                    step_order = list(keywords.keys())
                     for msg in new_messages:
                         # Skip our own prompt messages — they contain all the
                         # telemetry keywords and would instantly mark every step
@@ -247,12 +249,16 @@ class SessionPoller:
                             continue
 
                         triggered_steps = _detect_telemetry_progress(text, keywords)
-                        for step_id in triggered_steps:
-                            if step_id not in completed_steps:
-                                completed_steps.add(step_id)
-                                await investigation_store.update_telemetry_step(
-                                    investigation_id, step_id, "completed", text[:200]
-                                )
+                        if triggered_steps:
+                            # Only complete the NEXT sequential step, even if
+                            # later keywords were detected in the same message.
+                            for next_step in step_order:
+                                if next_step not in completed_steps:
+                                    completed_steps.add(next_step)
+                                    await investigation_store.update_telemetry_step(
+                                        investigation_id, next_step, "completed", text[:200]
+                                    )
+                                    break  # one step per message
 
                         # Emit raw telemetry event for the strip
                         preview = text[:150].replace("\n", " ")
