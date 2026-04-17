@@ -100,16 +100,18 @@ class InvestigationStore:
 
         lock_fields = investigation.status in _COMPLETE_STATES
 
+        applied: dict = {}
         for key, value in kwargs.items():
             if hasattr(investigation, key):
                 if lock_fields and key in _LOCKED_AFTER_INVESTIGATION:
                     continue  # skip — field is frozen
                 setattr(investigation, key, value)
+                applied[key] = value
 
         await event_bus.publish(SSEEvent(
             event_type="investigation_updated",
             investigation_id=investigation_id,
-            data=kwargs,
+            data=applied,
         ))
 
         return investigation
