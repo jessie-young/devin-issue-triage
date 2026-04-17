@@ -989,11 +989,15 @@ async def _seed_demo_investigations() -> int:
             and report.classification == InvestigationClassification.AUTO_FIX
             and pr_url_for_pending
         ):
-            # Add fix telemetry steps (all completed)
+            # Build full telemetry: investigation steps + fix steps, all completed
+            from app.models.investigation import TelemetryStep
+            investigation_steps = inv.get_investigation_telemetry()
             fix_steps = inv.get_fix_telemetry()
-            for step in fix_steps:
+            full_telemetry: list[TelemetryStep] = []
+            for step in investigation_steps + fix_steps:
                 step.status = "completed"
                 step.timestamp = now
+                full_telemetry.append(step)
             await investigation_store.update_investigation(
                 inv.id,
                 status=InvestigationStatus.PENDING_REVIEW,
@@ -1006,7 +1010,7 @@ async def _seed_demo_investigations() -> int:
                 started_at=now - random.uniform(30, 120),
                 completed_at=now,
                 priority=priority,
-                telemetry=inv.telemetry + fix_steps,
+                telemetry=full_telemetry,
             )
             pending_review_seeded = True
         else:

@@ -41,6 +41,47 @@ FIX_TELEMETRY_KEYWORDS = {
 }
 
 
+def _clean_root_cause(text: str) -> str:
+    """Clean up raw root cause text from Devin output for human-readable display.
+
+    Strips internal file paths, <ref_snippet> tags, code fences, excessive
+    technical detail, and truncates to a reasonable length.
+    """
+    # Remove <ref_snippet .../> and <ref_file .../> XML tags
+    text = re.sub(r"<ref_snippet[^>]*/\s*>", "", text)
+    text = re.sub(r"<ref_file[^>]*/\s*>", "", text)
+
+    # Remove absolute file paths (e.g. /home/ubuntu/repos/...)
+    text = re.sub(r"/home/ubuntu/[^\s)\"']+", "", text)
+
+    # Remove code fences
+    text = re.sub(r"```[\s\S]*?```", "", text)
+
+    # Remove backtick-quoted shell commands (e.g. `grep -ri "swagger|..."`)
+    text = re.sub(r"`[^`]{50,}`", "", text)
+
+    # Collapse numbered lists into sentences (e.g. "1. Foo 2. Bar" → "Foo. Bar.")
+    text = re.sub(r"\n\s*\d+\.\s*", ". ", text)
+
+    # Strip leading prefixes like "/ FEASIBILITY:" or "/ ROOT CAUSE:"
+    text = re.sub(r"^[/\s]*(?:FEASIBILITY|ROOT CAUSE)[:\s]*", "", text, flags=re.IGNORECASE)
+
+    # Collapse multiple whitespace / newlines
+    text = re.sub(r"\s+", " ", text).strip()
+
+    # Truncate to first 300 chars at a sentence boundary if possible
+    max_len = 300
+    if len(text) > max_len:
+        # Try to cut at a sentence boundary
+        cut = text[:max_len].rfind(". ")
+        if cut > 100:
+            text = text[:cut + 1]
+        else:
+            text = text[:max_len].rstrip() + "…"
+
+    return text
+
+
 def _parse_investigation_report(messages: list[dict]) -> Optional[InvestigationReport]:
     """Parse structured investigation output from Devin's messages."""
     # Filter out user prompt messages — they contain template keywords
@@ -65,13 +106,13 @@ def _parse_investigation_report(messages: list[dict]) -> Optional[InvestigationR
     # Extract root cause
     rc_match = re.search(r"ROOT CAUSE[:\s]*\n(.+?)(?=\n(?:COMPLEXITY|FIX CONFIDENCE|CLASSIFICATION|\Z))", full_text, re.DOTALL | re.IGNORECASE)
     if rc_match:
-        report.root_cause = rc_match.group(1).strip()[:1000]
+        report.root_cause = _clean_root_cause(rc_match.group(1).strip())
     else:
         # Fallback: look for "the bug is" or "the issue is"
         for pattern in [r"(?:root cause|the bug is|the issue is|the problem is)[:\s]+(.+?)(?:\n\n|\Z)", r"(?:because)[:\s]+(.+?)(?:\n\n|\Z)"]:
             m = re.search(pattern, full_text, re.IGNORECASE | re.DOTALL)
             if m:
-                report.root_cause = m.group(1).strip()[:500]
+                report.root_cause = _clean_root_cause(m.group(1).strip())
                 break
 
     # Extract complexity

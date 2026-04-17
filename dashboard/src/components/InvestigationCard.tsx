@@ -137,7 +137,7 @@ function RootCauseBlock({ text }: { text: string }) {
           ? <ChevronUp className="w-3.5 h-3.5 text-app-text-muted" />
           : <ChevronDown className="w-3.5 h-3.5 text-app-text-muted" />}
       </div>
-      <p className={`text-xs text-app-text-secondary mt-1 ${open ? '' : 'line-clamp-3'}`}>
+      <p className={`text-xs text-app-text-secondary mt-1 break-words overflow-hidden ${open ? '' : 'line-clamp-3'}`}>
         {text}
       </p>
     </div>
