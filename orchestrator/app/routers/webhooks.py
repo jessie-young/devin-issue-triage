@@ -111,4 +111,4 @@ async def github_webhook(
 
     except Exception as e:
         logger.error(f"Failed to start investigation for issue #{issue_number}: {e}")
-        return {"status": "queued", "investigation_id": investigation.id, "error": str(e)}
+        return {"status": "failed", "investigation_id": investigation.id, "error": str(e)}

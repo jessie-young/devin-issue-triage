@@ -89,9 +89,10 @@ async def reset_investigations():
         except Exception as e:
             logger.warning("Failed to stop old sessions on reset: %s", e)
 
-    cleared = await investigation_store.clear_all()
-    # Set seeding lock so incoming webhooks don't overwrite seeded states
+    # Set seeding lock BEFORE clear_all() so webhooks that fire during
+    # the async clear (e.g. from event_bus.publish) are also blocked.
     investigation_store.seeding = True
+    cleared = await investigation_store.clear_all()
     try:
         seeded = await _seed_demo_investigations()
     finally:
