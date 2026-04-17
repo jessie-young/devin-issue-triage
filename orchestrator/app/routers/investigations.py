@@ -270,7 +270,7 @@ async def launch_fix(req: LaunchFixRequest):
 
 async def _simulate_fix_flow(investigation_id: str) -> None:
     """Background task: progress fix telemetry steps with short delays, then move to PENDING_REVIEW."""
-    fix_step_ids = ["fix_start", "test_write", "test_run", "pr_open", "resolved"]
+    fix_step_ids = ["fix_start", "test_run", "pr_open", "resolved"]
     try:
         await investigation_store.update_investigation(
             investigation_id,

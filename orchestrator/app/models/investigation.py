@@ -90,7 +90,6 @@ class Investigation(BaseModel):
         """Return the standard fix-phase telemetry steps."""
         return [
             TelemetryStep(id="fix_start", label="Writing Fix"),
-            TelemetryStep(id="test_write", label="Writing Regression Test"),
             TelemetryStep(id="test_run", label="Running Test Suite"),
             TelemetryStep(id="pr_open", label="Opening PR"),
             TelemetryStep(id="resolved", label="Resolved"),
