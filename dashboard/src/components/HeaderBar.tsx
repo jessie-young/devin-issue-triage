@@ -9,6 +9,7 @@ interface HeaderBarProps {
   resolvedToday: number;
   uptimeStart: number;
   connected: boolean;
+  baseInProgress: number;
 }
 
 function formatUptime(seconds: number): string {
@@ -18,7 +19,7 @@ function formatUptime(seconds: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-export function HeaderBar({ active, completed, queued, total, resolvedToday, uptimeStart, connected }: HeaderBarProps) {
+export function HeaderBar({ active, completed, queued, total, resolvedToday, uptimeStart, connected, baseInProgress }: HeaderBarProps) {
   const [uptime, setUptime] = useState('00:00:00');
 
   useEffect(() => {
@@ -68,12 +69,12 @@ export function HeaderBar({ active, completed, queued, total, resolvedToday, upt
         {/* Right: Stats */}
         <div className="flex items-center gap-5">
           <StatBadge label="Queued" value={queued} dotColor="bg-app-primary" />
-          <StatBadge label="In Progress" value={active} dotColor="bg-app-warning" />
+          <StatBadge label="In Progress" value={baseInProgress + active} dotColor="bg-app-warning" />
           <StatBadge label="Resolved" value={completed} dotColor="bg-app-success" />
           <StatBadge label="Resolved Today" value={resolvedToday} dotColor="bg-app-success" />
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-app-panel border border-app-border">
             <span className="text-xs font-medium text-app-text-secondary">In/Out</span>
-            <span className="text-sm font-semibold text-app-text">{total}/{completed}</span>
+            <span className="text-sm font-semibold text-app-text">{baseInProgress + total}/{completed}</span>
             {backlogTrend === 'shrinking' ? (
               <TrendingDown className="w-3.5 h-3.5 text-app-success" />
             ) : backlogTrend === 'growing' ? (
