@@ -960,6 +960,16 @@ async def _seed_demo_investigations() -> int:
             fixture["issue_title"], fixture.get("issue_labels", [])
         )
 
+        # Post the investigation report as a comment on the GitHub issue
+        # so it mirrors what real Devin investigations look like (e.g. #209)
+        await github_service.post_investigation_comment(
+            issue_number=issue_number,
+            investigation_id=inv.id,
+            report=report,
+            playbook_name=_playbook_name,
+            playbook_id=_playbook_id,
+        )
+
         # Assign priority based on confidence
         if report.fix_confidence >= 80:
             priority = random.randint(70, 90)
