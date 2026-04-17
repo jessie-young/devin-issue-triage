@@ -219,6 +219,36 @@ class DevinClient:
 
         return await self._create_session_with_retry(payload)
 
+    async def stop_session(self, session_id: str) -> bool:
+        """Stop a running/suspended Devin session. Returns True if stopped."""
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    self._org_url(f"/sessions/{session_id}/stop"),
+                    headers=self._headers(),
+                )
+                if resp.status_code in (200, 204):
+                    return True
+                logger.warning("Failed to stop session %s: %s", session_id, resp.status_code)
+                return False
+        except Exception as e:
+            logger.warning("Error stopping session %s: %s", session_id, e)
+            return False
+
+    async def stop_all_running_sessions(self) -> int:
+        """Stop all running/suspended sessions to free capacity. Returns count stopped."""
+        sessions = await self.list_sessions(limit=100)
+        stopped = 0
+        for s in sessions:
+            sid = s.get("session_id", "")
+            status = s.get("status", "")
+            if status in ("running", "suspended") and sid:
+                # Don't stop this current Devin session (the orchestrator itself)
+                if await self.stop_session(sid):
+                    stopped += 1
+        logger.info("Stopped %d old Devin sessions", stopped)
+        return stopped
+
     async def get_session(self, session_id: str) -> dict:
         """Get session details including status."""
         async with httpx.AsyncClient(timeout=30) as client:

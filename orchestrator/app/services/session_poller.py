@@ -43,10 +43,13 @@ FIX_TELEMETRY_KEYWORDS = {
 
 def _parse_investigation_report(messages: list[dict]) -> Optional[InvestigationReport]:
     """Parse structured investigation output from Devin's messages."""
+    # Filter out user prompt messages — they contain template keywords
+    # (e.g. "COMPLEXITY: low / medium / high") that would cause incorrect
+    # regex matches and override Devin's actual findings.
     full_text = "\n".join(
         m.get("content", "") or m.get("message", "") or ""
         for m in messages
-        if isinstance(m, dict)
+        if isinstance(m, dict) and m.get("source") != "user"
     )
 
     if not full_text:
