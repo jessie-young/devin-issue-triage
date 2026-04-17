@@ -296,7 +296,10 @@ class DevinClient:
             )
             resp.raise_for_status()
             data = resp.json()
-            return data if isinstance(data, list) else data.get("sessions", [])
+            if isinstance(data, list):
+                return data
+            # v3 API wraps in {"items": [...]}
+            return data.get("items", data.get("sessions", []))
 
 
 # Singleton
