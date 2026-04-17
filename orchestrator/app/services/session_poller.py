@@ -249,7 +249,7 @@ class SessionPoller:
                             continue
 
                         triggered_steps = _detect_telemetry_progress(text, keywords)
-                        if triggered_steps:
+                        if triggered_steps and any(s not in completed_steps for s in triggered_steps):
                             # Only complete the NEXT sequential step, even if
                             # later keywords were detected in the same message.
                             for next_step in step_order:
