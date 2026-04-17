@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Activity, Wifi, WifiOff, TrendingDown, TrendingUp } from 'lucide-react';
+import { Wifi, WifiOff, TrendingDown, TrendingUp } from 'lucide-react';
 
 interface HeaderBarProps {
   active: number;
@@ -37,14 +37,12 @@ export function HeaderBar({ active, completed, queued, total, resolvedToday, upt
         {/* Left: Title & Status */}
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-app-primary flex items-center justify-center">
-              <Activity className="w-[1.125rem] h-[1.125rem] text-white" />
-            </div>
+            <img src="/capybara-logo.png" alt="Capybara Bank" className="w-8 h-8 rounded-lg object-cover" />
             <div>
               <h1 className="text-base font-semibold text-app-text">
-                Issue Triage
+                Capybara Bank
               </h1>
-              <p className="text-xs text-app-text-muted">Automated issue investigation</p>
+              <p className="text-xs text-app-text-muted">Automated Issue Triage</p>
             </div>
           </div>
           <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${

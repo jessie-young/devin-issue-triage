@@ -207,6 +207,21 @@ class GitHubService:
             logger.error(f"Failed to list issues: {e}")
             return []
 
+    async def list_pull_requests(self, state: str = "open", per_page: int = 10) -> list[dict]:
+        """List pull requests on the target repo."""
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.get(
+                    f"https://api.github.com/repos/{self._repo}/pulls",
+                    headers=self._headers(),
+                    params={"state": state, "per_page": per_page, "sort": "created", "direction": "desc"},
+                )
+                resp.raise_for_status()
+                return resp.json()
+        except Exception as e:
+            logger.error(f"Failed to list pull requests: {e}")
+            return []
+
 
 # Singleton
 github_service = GitHubService()
