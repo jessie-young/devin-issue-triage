@@ -158,6 +158,18 @@ class SessionPoller:
         )
         self._active_tasks[task_key] = task
 
+    def cancel_all(self) -> int:
+        """Cancel all active polling tasks. Returns count cancelled."""
+        count = 0
+        for task_key, task in list(self._active_tasks.items()):
+            if not task.done():
+                task.cancel()
+                count += 1
+        self._active_tasks.clear()
+        self._seen_messages.clear()
+        logger.info("Cancelled %d active polling tasks", count)
+        return count
+
     async def _poll_loop(self, investigation_id: str, session_id: str, phase: str) -> None:
         """Main polling loop for a session."""
         task_key = f"{investigation_id}:{phase}"

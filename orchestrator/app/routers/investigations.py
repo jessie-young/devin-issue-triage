@@ -81,6 +81,10 @@ async def reset_investigations():
        (fetched from real Devin sessions) so the board shows realistic data
        without creating new issues or Devin sessions.
     """
+    # Cancel all active polling tasks so stale pollers don't overwrite
+    # freshly seeded investigations after the store is cleared.
+    session_poller.cancel_all()
+
     # Stop old sessions to free capacity for new investigations
     if devin_client.is_configured:
         try:
