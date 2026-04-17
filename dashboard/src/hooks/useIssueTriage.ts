@@ -8,6 +8,7 @@ export function useIssueTriage() {
   const [stats, setStats] = useState({
     active: 0, completed: 0, queued: 0, total: 0, resolved_today: 0,
     auto_fix_count: 0, needs_review_count: 0, escalate_count: 0,
+    base_in_progress: 330,
   });
   const [uptimeStart, setUptimeStart] = useState<number>(Date.now() / 1000);
   const [telemetryLog, setTelemetryLog] = useState<TelemetryLogEntry[]>([]);
@@ -38,7 +39,7 @@ export function useIssueTriage() {
     const todayStart = new Date();
     todayStart.setUTCHours(0, 0, 0, 0);
     const todayStartSec = todayStart.getTime() / 1000;
-    setStats({
+    setStats(prev => ({
       active: all.filter(m => ['INVESTIGATING', 'INVESTIGATION_COMPLETE', 'FIX_IN_PROGRESS', 'LAUNCHING'].includes(m.status)).length,
       completed: all.filter(m => ['RESOLVED', 'ROUTED', 'CLOSED'].includes(m.status)).length,
       queued: all.filter(m => m.status === 'QUEUED').length,
@@ -50,7 +51,8 @@ export function useIssueTriage() {
       auto_fix_count: all.filter(m => m.classification === 'AUTO_FIX').length,
       needs_review_count: all.filter(m => m.classification === 'NEEDS_REVIEW').length,
       escalate_count: all.filter(m => m.classification === 'ESCALATE').length,
-    });
+      base_in_progress: prev.base_in_progress,
+    }));
   }, []);
 
   // Fetch full state from the backend.
@@ -65,7 +67,7 @@ export function useIssueTriage() {
       if (seq !== fetchSeqRef.current) return;
       const data: DashboardState = await resp.json();
       setInvestigations(data.investigations);
-      setStats(data.stats);
+      setStats(prev => ({ ...data.stats, base_in_progress: data.stats.base_in_progress ?? prev.base_in_progress }));
       setUptimeStart(data.uptime_start);
     } catch {
       // Will retry on reconnect

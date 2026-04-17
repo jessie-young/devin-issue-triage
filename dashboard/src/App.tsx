@@ -67,6 +67,7 @@ function App() {
         resolvedToday={stats.resolved_today}
         uptimeStart={uptimeStart}
         connected={connected}
+        baseInProgress={stats.base_in_progress}
       />
 
       {/* Classification summary & actions bar */}

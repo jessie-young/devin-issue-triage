@@ -19,11 +19,16 @@ from app.services.event_bus import event_bus
 class InvestigationStore:
     """Manages all investigations in memory."""
 
+    # Hardcoded base count representing issues already in progress
+    # before the dashboard was opened (not tracked individually).
+    BASE_IN_PROGRESS = 330
+
     def __init__(self) -> None:
         self._investigations: dict[str, Investigation] = {}
         self._uptime_start: float = time.time()
         self._auto_triage: bool = False
         self._seeding: bool = False
+        self._base_in_progress: int = self.BASE_IN_PROGRESS
 
     @property
     def seeding(self) -> bool:
@@ -123,6 +128,7 @@ class InvestigationStore:
         count = len(self._investigations)
         self._investigations.clear()
         self._uptime_start = time.time()
+        self._base_in_progress = self.BASE_IN_PROGRESS
 
         await event_bus.publish(SSEEvent(
             event_type="investigations_cleared",
@@ -170,6 +176,7 @@ class InvestigationStore:
                 "auto_fix_count": len([inv for inv in self._investigations.values() if inv.classification == InvestigationClassification.AUTO_FIX]),
                 "needs_review_count": len([inv for inv in self._investigations.values() if inv.classification == InvestigationClassification.NEEDS_REVIEW]),
                 "escalate_count": len([inv for inv in self._investigations.values() if inv.classification == InvestigationClassification.ESCALATE]),
+                "base_in_progress": self._base_in_progress,
             },
             uptime_start=self._uptime_start,
         )

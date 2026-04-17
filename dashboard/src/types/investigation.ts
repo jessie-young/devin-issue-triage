@@ -72,6 +72,7 @@ export interface DashboardStats {
   auto_fix_count: number;
   needs_review_count: number;
   escalate_count: number;
+  base_in_progress: number;
 }
 
 export interface DashboardState {
