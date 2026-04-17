@@ -1,0 +1,226 @@
+[
+  {
+    "issue_title": "bug: transaction pagination returns hasMore: true on last page",
+    "issue_body": "When fetching paginated transactions via `GET /transactions/:accountId`, the response \nreturns `hasMore: true` even when the client is already on the last page. This causes \nclients that auto-paginate based on `hasMore` to fetch one extra empty page, and some \nclients loop infinitely.\nSteps to reproduce:\n1. Create 25 transactions for an account\n2. Fetch page 1 with pageSize=20 (returns 20 items, hasMore: true) \u2014 correct\n3. Fetch page 2 with pageSize=20 (returns 5 items, hasMore: true) \u2014 WRONG, should be false\nExpected: `hasMore` should be `false` when `page >= totalPages`\nActual: `hasMore` is `true` when `page == totalPages`\nThis is in `src/modules/transactions/controller/transaction.controller.ts`.",
+    "issue_labels": [],
+    "session_url": "https://app.devin.ai/sessions/d661b2957e654110ac5b0f5abc5d233b",
+    "report": {
+      "relevant_files": [
+        "src/modules/transactions/service/transaction.service.ts",
+        "src/modules/transactions/controller/transaction.controller.ts"
+      ],
+      "git_history": [],
+      "root_cause": "In `transaction.controller.ts:23`, `hasMore` is computed as `page <= result.totalPages`. On the final page, `page == totalPages`, so this evaluates to `true` when it should be `false`. The comparison must be `page < result.totalPages// BUG:` comment at lines 18\u201322.",
+      "complexity": "low",
+      "fix_confidence": 98,
+      "related_issues": [],
+      "classification": "AUTO_FIX",
+      "summary": "Classic off-by-one in the transaction history pagination response. `hasMore` uses `<=`\n  instead of `<` against `totalPages`, so the last page always reports `hasMore: true`,\n  causing auto-paginating clients to fetch an empty extra page or loop.",
+      "recommended_fix": "Change `hasMore: page <= result.totalPages` to `hasMore: page < result.totalPages` in\n  `src/modules/transactions/controller/transaction.controller.ts:23` and remove the\n  stale `// BUG:` comment block (lines 18\u201322). Add/adjust a unit test covering the\n  last-page case (e.g., 25 items, pageSize=20, page=2 \u2192 `hasMore: false`)."
+    }
+  },
+  {
+    "issue_title": "security: CSV export vulnerable to formula injection attacks",
+    "issue_body": "## Description\nThe CSV export functionality in the reporting module does not sanitize cell values before writing them. If a transaction description starts with `=`, `+`, `-`, or `@`, spreadsheet applications (Excel, Google Sheets) will interpret it as a formula, enabling CSV formula injection (aka CSV injection or DDE injection).\n\n## Steps to Reproduce\n1. Create a transaction with description: `=HYPERLINK(\"http://evil.com\",\"Click here\")`\n2. Export transactions to CSV\n3. Open the CSV in Excel or Google Sheets\n4. Observe: the cell renders as a clickable hyperlink to an external domain\n\n## Impact\n- **Data exfiltration**: Formulas can use `IMPORTXML` or `WEBSERVICE` to send cell data to external servers\n- **Social engineering**: Fake hyperlinks can redirect users to phishing pages\n- **Severity**: Medium-High for a financial application\n\n## Suggested Fix\nPrefix any cell value starting with `=`, `+`, `-`, `@`, `\\t`, or `\\r` with a single quote character to prevent formula interpretation.",
+    "issue_labels": [
+      "bug",
+      "security"
+    ],
+    "session_url": "https://app.devin.ai/sessions/1f8a0eb381bf47458a9aa1ad282ed7f0",
+    "report": {
+      "relevant_files": [
+        "src/shared/types/index.ts",
+        "src/modules/reporting/__tests__/csv-export.test.ts",
+        "src/modules/reporting/service/report.service.ts",
+        "src/modules/reporting/controller/report.controller.ts"
+      ],
+      "git_history": [],
+      "root_cause": "In report.service.ts:27\u201339, each transaction row is built by interpolating `t.description` and `t.categoryrow.map((cell) => `\"${cell}\"`).join(',')\"` in descriptions also corrupts the CSV because quotes are not doubled per RFC 4180.",
+      "complexity": "low",
+      "fix_confidence": 92,
+      "related_issues": [],
+      "classification": "AUTO_FIX",
+      "summary": "The reporting module's CSV export interpolates user-controlled transaction\ndescriptions and categories into cells without sanitizing formula-trigger\ncharacters, enabling CSV/formula-injection attacks against anyone opening\nthe exported file in a spreadsheet app. The vulnerable code was introduced\nin a single commit (17217fec by Marcus Johnson) and is isolated to\ngenerateCsvExport in report.service.ts.",
+      "recommended_fix": "1. Add `sanitizeCsvCell(value: unknown): string` in src/shared/utils/\n   (e.g., csv.ts) that:\n   - Coerces value to string.\n   - If the first character is in {'=', '+', '-', '@', '\\t', '\\r'},\n     prepends a single quote `'`.\n   - Doubles any embedded `\"` and wraps the result in `\"...\"`.\n2. In report.service.ts generateCsvExport, replace the\n   `row.map((cell) => `\"${cell}\"`)` line with\n   `row.map(sanitizeCsvCell)` and drop the manual quoting. Apply the\n   same helper to header cells for defense-in-depth.\n3. Extend src/modules/reporting/__tests__/csv-export.test.ts with cases\n   for descriptions beginning with =, +, -, @, TAB, CR, and embedded `\"`,\n   asserting the leading `'` prefix and proper quote doubling.\n4. No controller, route, or type changes required."
+    }
+  },
+  {
+    "issue_title": "bug: rate limiter uses global counter instead of per-client",
+    "issue_body": "## Bug Report\n\nThe API rate limiter applies a single global counter across all clients. A single aggressive client can exhaust the rate limit for everyone.\n\n### Steps to Reproduce\n1. Send 100 requests from Client A in 10 seconds\n2. Client B sends a single request\n3. Client B gets 429 Too Many Requests\n\n### Expected Behavior\nRate limits should be applied per client (by API key or client ID), not globally.",
+    "issue_labels": [
+      "bug"
+    ],
+    "session_url": "https://app.devin.ai/sessions/1170208e012b4be7ad90618146f73f29",
+    "report": {
+      "relevant_files": [
+        "src/server.ts",
+        "src/shared/middleware/rate-limiter.ts",
+        "src/shared/middleware/__tests__/rate-limiter.test.ts",
+        "src/shared/middleware/index.ts"
+      ],
+      "git_history": [],
+      "root_cause": "The limiter in keys its in-memory counter only on `req.ip` (line 10: `const key = req.ip || 'unknown';req.ipapp.set('trust proxy', ...)` is configured. `server.ts` never sets `trust proxytrust proxyreq.user.id` or an `X-API-Keyserver.tsMapnext()maxRequests + 1`.",
+      "complexity": "low",
+      "fix_confidence": 85,
+      "related_issues": [
+        181,
+        175,
+        168,
+        161,
+        154,
+        147
+      ],
+      "classification": "AUTO_FIX",
+      "summary": "`rateLimiter` keys its counter on `req.ip`, which \u2014 without `trust proxy` and without access to auth context \u2014 effectively becomes a single global bucket behind any proxy/LB, so one noisy client can 429 everyone else. The fix is to key on an authenticated client identifier (API key header or `req.user.id`) with IP as a fallback, and mount the middleware after auth.",
+      "recommended_fix": "1. In `rate-limiter.ts`, derive the key as: `req.header('x-api-key') || (req as any).user?.id || req.ip || 'unknown'`, with a distinct prefix per source (`apikey:`, `user:`, `ip:`) to avoid collisions.\n2. Mount `rateLimiter()` *after* the auth middleware for authenticated routes (or expose a lightweight API-key extractor that runs before it). Keep a looser IP-based limit for unauthenticated endpoints like `/api/auth/login`.\n3. Add a periodic sweep (or switch to a sliding-window / token-bucket with lazy expiry) to prevent unbounded `Map` growth.\n4. Fix the off-by-one by counting the first request in the window (`count: 1` then check `> maxRequests`, which the current code already does \u2014 but the reset path should also count against the new window, which it does; verify with a unit test).\n5. Add Jest tests under `src/shared/middleware/__tests__/rate-limiter.test.ts` covering: different API keys isolated, same IP different API keys isolated, window reset, 429 payload shape."
+    }
+  },
+  {
+    "issue_title": "bug: concurrent withdrawals allow negative account balance",
+    "issue_body": "## Bug Report\n\nWhen two withdrawal requests are submitted simultaneously for the same account, both can succeed even when the combined amount exceeds the available balance. This results in a negative balance.\n\n### Steps to Reproduce\n1. Create an account with $100 balance\n2. Submit two concurrent withdrawal requests for $80 each\n3. Both succeed \u2014 balance becomes -$60\n\n### Expected Behavior\nThe second withdrawal should fail with an insufficient-funds error.\n\n### Environment\n- Node.js v18, PostgreSQL 15",
+    "issue_labels": [
+      "bug",
+      "critical"
+    ],
+    "session_url": "https://app.devin.ai/sessions/a8d077eb6b2e47bbaacd6221c5df8658",
+    "report": {
+      "relevant_files": [
+        "src/modules/accounts/controller/account.controller.ts",
+        "src/modules/accounts/repository/account.repository.ts",
+        "src/modules/accounts/service/account.service.ts"
+      ],
+      "git_history": [],
+      "root_cause": "The withdrawal path is a classic non-atomic check-then-act (TOCTOU):. `AccountService.debit` reads the account, checks `account.balance < amount` in JS, then calls `repo.updateBalance(id, -amount)` in a separate step..",
+      "complexity": "medium",
+      "fix_confidence": 75,
+      "related_issues": [],
+      "classification": "NEEDS_REVIEW",
+      "summary": "Issue #205 is a real TOCTOU race in the accounts module: `debit` checks\n  balance and then mutates it in two separate awaits, and `updateBalance`\n  itself does read-modify-write with an `await` in the middle. Two\n  concurrent withdrawals both pass the balance check and both write back,\n  producing a negative balance. The fix is well-understood but requires\n  a design choice between an in-memory mutex and a true atomic /\n  transactional UPDATE.",
+      "recommended_fix": "Short-term, minimal-change fix (matches current in-memory architecture):\n    1. Add a per-accountId async lock (e.g. a `Map<string, Promise<void>>`\n       chain) in `AccountRepository`, and expose an `updateBalanceGuarded`\n       that accepts a `delta` plus a predicate (e.g. `minBalance`) and\n       performs read \u2192 check \u2192 write inside the lock.\n    2. Rewrite `AccountService.debit` to call the guarded method so the\n       insufficient-funds check and the balance mutation happen atomically;\n       translate a predicate failure into the existing \"Insufficient funds\"\n       error.\n    3. Have `credit` and any payments-module callers route through the\n       same guarded path to prevent lost updates on concurrent credits.\n    4. Add a regression test that fires two concurrent $80 debits against\n       a $100 account and asserts exactly one succeeds and the final\n       balance is $20.\n\n  Longer-term (recommended to flag in the PR but not necessarily do in\n  this fix): when the real Postgr"
+    }
+  },
+  {
+    "issue_title": "security: API tokens not invalidated on password change",
+    "issue_body": "When a user changes their password, existing API tokens remain valid. An attacker with a stolen token can continue accessing the API even after the user rotates their password.",
+    "issue_labels": [
+      "bug",
+      "security"
+    ],
+    "session_url": "https://app.devin.ai/sessions/95d91f177ea344d2b9a24cce29b5c86f",
+    "report": {
+      "relevant_files": [
+        "src/modules/auth/controller/auth.controller.ts",
+        "src/modules/auth/service/auth.service.ts",
+        "src/modules/auth/__tests__/auth.test.ts",
+        "src/shared/types/index.ts",
+        "src/shared/middleware/auth.middleware.ts"
+      ],
+      "git_history": [],
+      "root_cause": "There is no password-change endpoint in the codebase. `grepverifyAccessTokentokenVersion`, and no `passwordChangedAtSet<string>refreshTokensByUserUser` interface has no `tokenVersion` or `passwordChangedAtrefreshAccessToken` never removes the old refresh token on rotation, .",
+      "complexity": "medium",
+      "fix_confidence": 70,
+      "related_issues": [],
+      "classification": "NEEDS_REVIEW",
+      "summary": "Issue #65 reports a real security gap, but the underlying password-change endpoint doesn't exist in the codebase \u2014 so the \"bug\" is effectively a missing feature plus missing invalidation infrastructure. Access tokens are stateless JWTs with no user-version check, and refresh tokens are stored in a global `Set` with no per-user index, so there is currently no way to invalidate a user's tokens at all.",
+      "recommended_fix": "1. Add `tokenVersion: number` (default 0) to the `User` interface in src/shared/types/index.ts.\n2. Include `tokenVersion` in both access- and refresh-token JWT payloads in `generateTokenPair`.\n3. In `verifyAccessToken`, look up the user by email and reject if `payload.tokenVersion !== user.tokenVersion`.\n4. Replace `refreshTokens: Set<string>` with `refreshTokensByUser: Map<userId, Set<string>>` so all of a user's refresh tokens can be cleared at once (update `refreshAccessToken` and `logout` accordingly; also fix the pre-existing token-rotation bug at lines 65-70 while you're there).\n5. Add `AuthService.changePassword(userId, oldPassword, newPassword)` that verifies the old password, updates `passwordHash`, increments `tokenVersion`, and clears `refreshTokensByUser.get(userId)`.\n6. Add `POST /api/auth/change-password` behind `requireAuth` middleware in the controller.\n7. Add tests covering: successful change; wrong old password rejected; old access token rejected after change; old ref"
+    }
+  },
+  {
+    "issue_title": "bug: login page returns 403 after session timeout",
+    "issue_body": "## Bug Report\n\nAfter a session times out (~30 min idle), navigating back to the login page returns a 403 Forbidden instead of rendering the login form. Users must clear cookies or open an incognito window to log in again.\n\n### Steps to Reproduce\n1. Log in to the application\n2. Wait 30+ minutes without activity\n3. Navigate to /login\n4. Observe 403 Forbidden\n\n### Expected Behavior\nThe login page should always render regardless of session state.",
+    "issue_labels": [
+      "bug"
+    ],
+    "session_url": "https://app.devin.ai/sessions/258b173350a94db2ba2fedcd34dc14b0",
+    "report": {
+      "relevant_files": [
+        "src/modules/auth/controller/auth.controller.ts",
+        "src/modules/auth/service/auth.service.ts",
+        "src/shared/middleware/auth.middleware.ts",
+        "src/shared/middleware/rate-limiter.ts",
+        "src/server.ts"
+      ],
+      "git_history": [],
+      "root_cause": "The reported behavior cannot occur in this repository:. This is a backend-only TypeScript/Express JSON API. There is no \"login page\" rendered anywhere \u2014 only a JSON endpoint POST /api/auth/login (auth.controller.ts:21). There is no GET handler for /login or /api/auth/login.",
+      "complexity": "low",
+      "fix_confidence": 20,
+      "related_issues": [
+        190,
+        183,
+        177,
+        170,
+        163
+      ],
+      "classification": "ESCALATE",
+      "summary": "Issue #190 describes a 403 on a rendered /login page after a 30-minute idle session timeout, but this repository is a stateless JWT JSON API with no login page, no sessions, no cookies, and no code path that returns 403 for an auth route. The symptoms are not reproducible here and there are multiple exact duplicates already open.",
+      "recommended_fix": "Do not attempt a code change. Instead:\n1. Post a comment on #190 explaining that the service is a stateless JWT backend with no GET /login route and no session/cookie mechanism, so the described behavior cannot originate from this repo.\n2. Ask the reporter which frontend/app was being used and capture the actual request (method, path, response headers) \u2014 the 403 is almost certainly coming from an upstream proxy, CDN, or a separate frontend app, not from this service.\n3. Close #190 as \"cannot reproduce / invalid\" once confirmed, and close #183, #177, #170, #163 as duplicates of #190.\n4. If product genuinely wants a server-rendered login page with session timeout handling, open a separate feature issue \u2014 that is an architectural change, not a bug fix."
+    }
+  },
+  {
+    "issue_title": "chore: reporting API endpoints have no documentation",
+    "issue_body": "## Documentation Gap\n\nThe `/api/reports/*` endpoints are fully implemented but have no OpenAPI annotations. Partners cannot discover or integrate with the reporting API because it doesn't appear in the generated API docs.\n\n### Affected Endpoints\n- `GET /api/reports/monthly`\n- `GET /api/reports/quarterly`\n- `GET /api/reports/export/csv`\n- `POST /api/reports/custom`\n\n### Requested\nAdd `@ApiOperation` and `@ApiResponse` decorators to all report controller methods.",
+    "issue_labels": [
+      "documentation",
+      "chore"
+    ],
+    "session_url": "https://app.devin.ai/sessions/fd67e7f797a84d518b2440d209dc9745",
+    "report": {
+      "relevant_files": [
+        "src/server.ts",
+        "src/shared/openapi.ts",
+        "src/modules/reporting/service/report.service.ts",
+        "src/modules/reporting/controller/report.controller.ts"
+      ],
+      "git_history": [],
+      "root_cause": "The reporting router was added without any API documentation tooling. Three concrete problems:. Framework mismatch. The issue asks for `@ApiOperation` / `@ApiResponse` decorators, which come from `@nestjs/swagger`.",
+      "complexity": "medium",
+      "fix_confidence": 60,
+      "related_issues": [
+        148,
+        155,
+        162,
+        169,
+        176,
+        182,
+        189
+      ],
+      "classification": "NEEDS_REVIEW",
+      "summary": "The reporting module has no API documentation because the project has no OpenAPI/Swagger tooling installed and is an Express (not NestJS) app, so the `@ApiOperation`/`@ApiResponse` decorators requested in the issue are not applicable. Additionally, the endpoint list in the issue does not match the actual routes in `report.controller.ts`. Resolving this requires a small framework decision before code changes.",
+      "recommended_fix": "1. Add `swagger-jsdoc` + `swagger-ui-express` (and `@types/*`) to `package.json`.\n2. Create `src/shared/openapi.ts` that builds an OpenAPI 3.0 spec from JSDoc `@openapi` blocks and exposes it.\n3. Mount `/api/docs` (swagger-ui) and `/api/openapi.json` in `src/server.ts`.\n4. Add JSDoc `@openapi` blocks above each route in `report.controller.ts` for the three existing endpoints (`export/:accountId`, `monthly/:accountId`, `annual/:accountId`), including path params, query params, 200/400/401/500 responses, and a `Report` schema.\n5. Leave `quarterly` and `POST /custom` out of scope \u2014 flag back to reporter that those endpoints don't exist and ask whether they should be implemented as a separate issue.\n6. Optionally extend the same JSDoc pattern to the other modules (auth, accounts, payments, transactions, notifications) so the platform has full coverage, or file follow-up issues per module.\n7. Close #148, #155, #162, #169, #176, #182 as duplicates of #189 once fixed."
+    }
+  },
+  {
+    "issue_title": "feature: support multi-currency cross-border transfers",
+    "issue_body": "## Feature Request\n\nOur international clients need the ability to send cross-border transfers in different currencies. Currently the system only supports single-currency (USD) transactions.\n\n### Requirements\n- FX rate lookup at transfer initiation time\n- Store both source and destination currency amounts\n- Display conversion details in the transaction history\n- Support at least USD, EUR, GBP, JPY\n\n### Business Context\nThis is blocking our expansion into the EU market.",
+    "issue_labels": [
+      "enhancement",
+      "feature"
+    ],
+    "session_url": "https://app.devin.ai/sessions/7c4d5ea232f045ab8058d92e2eb29563",
+    "report": {
+      "relevant_files": [
+        "src/modules/transactions/controller/transaction.controller.ts",
+        "src/modules/transactions/service/transaction.service.ts",
+        "src/modules/accounts/repository/account.repository.ts",
+        "src/modules/reporting/service/report.service.ts",
+        "src/modules/transactions/repository/transaction.repository.ts",
+        "src/shared/types/index.ts",
+        "src/modules/payments/controller/payment.controller.ts",
+        "src/modules/payments/service/payment.service.ts",
+        "src/modules/accounts/service/account.service.ts",
+        "src/shared/utils/currency.ts"
+      ],
+      "git_history": [],
+      "root_cause": "(feasibility analysis, not a bug): The platform was designed around a single-currency-per-transaction model. Concretely:. Payment.amount/currency (shared/types/index.ts:24\u201334) represent a single amount; there is no sourceAmount/destinationAmount or fxRate field..",
+      "complexity": "high",
+      "fix_confidence": 45,
+      "related_issues": [
+        174,
+        180
+      ],
+      "classification": "ESCALATE",
+      "summary": "The platform is hard-wired to single-currency transactions: Payment and Transaction carry a single amount/currency, and PaymentService debits and credits identical amounts with no FX step. currency.ts already declares EUR/GBP/JPY support for display, but there is no FX provider, no source/destination amount model, and reporting would mis-aggregate multi-currency rows. Shipping this is feasible but requires data-model changes and architectural decisions, so it should be escalated for design befor",
+      "recommended_fix": ""
+    }
+  }
+]

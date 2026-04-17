@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import pathlib
 import re
 import time
 
@@ -828,120 +830,79 @@ _SEED_TEMPLATES: list[dict] = [
     },
 ]
 
+# ---------------------------------------------------------------------------
+# Static seed fixtures — real Devin investigation data stored in the codebase.
+#
+# On Reset the dashboard creates NEW GitHub issues from these templates and
+# populates cards with the stored investigation reports.  No Devin API calls
+# are made during seeding — the data was captured once from real sessions.
+# ---------------------------------------------------------------------------
+_FIXTURES_PATH = pathlib.Path(__file__).resolve().parent.parent / "fixtures" / "seed_investigations.json"
+
 # The draft PR URL for the transaction search fix on demo-finserv-repo.
 # This is linked to the seed issue that gets placed in PENDING_REVIEW.
 _DRAFT_PR_URL = "https://github.com/jessie-young/demo-finserv-repo/pull/113"
 
 
+def _load_seed_fixtures() -> list[dict]:
+    """Load the static seed investigation fixtures from the JSON file."""
+    try:
+        with open(_FIXTURES_PATH) as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error("Failed to load seed fixtures from %s: %s", _FIXTURES_PATH, e)
+        return []
+
+
 async def _seed_demo_investigations() -> int:
-    """Seed the dashboard with existing already-investigated GitHub issues.
+    """Seed the dashboard by creating new GitHub issues from stored fixtures.
 
-    Fetches recent Devin sessions that have completed investigation reports,
-    matches them to their GitHub issues, and pre-populates the board with
-    real data.  No new GitHub issues or Devin sessions are created.
+    Each fixture contains a real Devin investigation report captured from a
+    previous session.  On Reset we:
+    1. Create a fresh GitHub issue for each fixture (so issue numbers are new).
+    2. Populate the dashboard card with the stored investigation report.
+    3. Promote the first AUTO_FIX card to PENDING_REVIEW with a real PR link.
 
-    Picks a diverse mix: bugs, features, docs — with varied classifications
-    (AUTO_FIX, NEEDS_REVIEW, ESCALATE) and priorities.
+    No Devin API calls are made — all data comes from the JSON fixtures file.
     """
     import random
+    from app.models.investigation import TelemetryStep
     from app.services.playbook_router import playbook_router
-    from app.services.session_poller import _parse_investigation_report
 
-    if not devin_client.is_configured:
-        logger.warning("Devin API not configured — cannot seed from real sessions")
+    fixtures = _load_seed_fixtures()
+    if not fixtures:
+        logger.warning("No seed fixtures found — dashboard will be empty after reset")
         return 0
 
-    # Fetch recent Devin sessions
-    try:
-        sessions = await devin_client.list_sessions(limit=100)
-    except Exception as e:
-        logger.error("Failed to list Devin sessions for seeding: %s", e)
-        return 0
-
-    # Filter to investigation sessions (title contains 'Investigate')
-    inv_sessions = [
-        s for s in sessions
-        if "investigate" in (s.get("title") or "").lower()
-        and s.get("session_id")
-    ]
-
-    # Try to get a diverse set — collect sessions by issue type
-    seeded = 0
-    seen_titles: set[str] = set()  # deduplicate by normalized title
+    # Select up to 5 fixtures with a diverse classification mix:
+    # 3 AUTO_FIX (one becomes PENDING_REVIEW), 1 NEEDS_REVIEW, 1 ESCALATE
     target_count = 5
-    candidates: list[dict] = []  # list of {session, messages, report, issue_data}
+    by_cls: dict[str, list[dict]] = {}
+    for fix in fixtures:
+        cls = fix["report"].get("classification", "UNKNOWN")
+        by_cls.setdefault(cls, []).append(fix)
 
-    for session_info in inv_sessions:
-        if len(candidates) >= target_count * 2:  # gather extra for diversity selection
-            break
-
-        session_id = session_info["session_id"]
-
-        # Extract issue number from session title
-        title = session_info.get("title", "")
-        issue_match = re.search(r"#(\d+)", title)
-        if not issue_match:
-            continue
-        issue_number = int(issue_match.group(1))
-
-        try:
-            messages = await devin_client.get_session_messages(session_id)
-        except Exception:
-            continue
-
-        # Only use sessions where Devin produced a full report
-        devin_messages = [m for m in messages if m.get("source") != "user"]
-        report = _parse_investigation_report(devin_messages)
-        if not report or not report.classification:
-            continue
-
-        # Fetch the actual GitHub issue data
-        try:
-            gh_issue = await github_service.get_issue(issue_number)
-        except Exception:
-            continue
-        if not gh_issue:
-            continue
-
-        # Deduplicate by normalized title (skip duplicates of same bug)
-        norm_title = gh_issue.get("title", "").lower().strip()
-        if norm_title in seen_titles:
-            continue
-        seen_titles.add(norm_title)
-
-        candidates.append({
-            "session_id": session_id,
-            "session_url": session_info.get("url", ""),
-            "report": report,
-            "issue_number": issue_number,
-            "issue_title": gh_issue.get("title", ""),
-            "issue_body": gh_issue.get("body", "") or "",
-            "issue_url": gh_issue.get("html_url", ""),
-            "issue_labels": [
-                l["name"] if isinstance(l, dict) else l
-                for l in gh_issue.get("labels", [])
-            ],
-        })
-
-    # Select a diverse mix: try to get different classifications and issue types
     selected: list[dict] = []
-    by_classification: dict[str, list[dict]] = {}
-    for c in candidates:
-        cls_val = c["report"].classification.value if c["report"].classification else "UNKNOWN"
-        by_classification.setdefault(cls_val, []).append(c)
+    # Take up to 3 AUTO_FIX first (one becomes PENDING_REVIEW)
+    auto_fix_pool = list(by_cls.get("AUTO_FIX", []))
+    random.shuffle(auto_fix_pool)
+    while len(selected) < 3 and auto_fix_pool:
+        selected.append(auto_fix_pool.pop(0))
 
-    # Take at least one from each classification if available
-    for cls_name, items in by_classification.items():
-        if len(selected) < target_count and items:
-            selected.append(items.pop(0))
+    # Then 1 NEEDS_REVIEW and 1 ESCALATE
+    for cls_name in ("NEEDS_REVIEW", "ESCALATE"):
+        pool = list(by_cls.get(cls_name, []))
+        random.shuffle(pool)
+        if len(selected) < target_count and pool:
+            selected.append(pool.pop(0))
 
-    # Fill remaining slots from all candidates
-    remaining = [c for c in candidates if c not in selected]
+    # Fill remaining slots from leftovers
+    remaining = [f for f in fixtures if f not in selected]
     random.shuffle(remaining)
     while len(selected) < target_count and remaining:
         selected.append(remaining.pop(0))
 
-    # Look up open PRs on the demo repo so we can link one to a PENDING_REVIEW card
+    # Look up an open PR on the demo repo to link to the PENDING_REVIEW card
     pr_url_for_pending: str | None = None
     try:
         open_prs = await github_service.list_pull_requests(state="open", per_page=10)
@@ -949,33 +910,67 @@ async def _seed_demo_investigations() -> int:
             pr_url_for_pending = open_prs[0].get("html_url")
     except Exception:
         pass
+    if not pr_url_for_pending:
+        pr_url_for_pending = _DRAFT_PR_URL
 
-    # Seed each selected candidate
+    # Create GitHub issues and seed dashboard cards
+    seeded = 0
     now = time.time()
     pending_review_seeded = False
-    for candidate in selected:
-        inv = await investigation_store.create_investigation(
-            issue_number=candidate["issue_number"],
-            issue_title=candidate["issue_title"],
-            issue_body=candidate["issue_body"],
-            issue_url=candidate["issue_url"],
-            issue_labels=candidate["issue_labels"],
+
+    for fixture in selected:
+        # Create a NEW GitHub issue from the fixture template
+        gh_issue = await github_service.create_issue(
+            title=fixture["issue_title"],
+            body=fixture["issue_body"],
+            labels=fixture.get("issue_labels"),
+        )
+        if not gh_issue:
+            logger.warning("Failed to create GitHub issue for: %s", fixture["issue_title"])
+            continue
+
+        issue_number = gh_issue["number"]
+        issue_url = gh_issue.get("html_url", "")
+
+        # Build InvestigationReport from stored data
+        report_data = fixture["report"]
+        report = InvestigationReport(
+            relevant_files=report_data.get("relevant_files", []),
+            git_history=report_data.get("git_history", []),
+            root_cause=report_data.get("root_cause", ""),
+            complexity=report_data.get("complexity", ""),
+            fix_confidence=report_data.get("fix_confidence", 0),
+            related_issues=report_data.get("related_issues", []),
+            classification=InvestigationClassification(report_data["classification"]) if report_data.get("classification") else None,
+            summary=report_data.get("summary", ""),
+            recommended_fix=report_data.get("recommended_fix", ""),
         )
 
-        report = candidate["report"]
+        # Create the investigation in our store
+        inv = await investigation_store.create_investigation(
+            issue_number=issue_number,
+            issue_title=fixture["issue_title"],
+            issue_body=fixture["issue_body"],
+            issue_url=issue_url,
+            issue_labels=fixture.get("issue_labels", []),
+        )
 
         # Resolve playbook
         _issue_type, _playbook_id, _playbook_name = playbook_router.resolve_playbook(
-            candidate["issue_title"], candidate["issue_labels"]
+            fixture["issue_title"], fixture.get("issue_labels", [])
         )
 
-        # Mark all investigation telemetry steps as completed
-        for step in inv.telemetry:
-            step.status = "completed"
-            step.timestamp = now
+        # Post the investigation report as a comment on the GitHub issue
+        # so it mirrors what real Devin investigations look like (e.g. #209)
+        await github_service.post_investigation_comment(
+            issue_number=issue_number,
+            investigation_id=inv.id,
+            report=report,
+            playbook_name=_playbook_name,
+            playbook_id=_playbook_id,
+        )
 
         # Assign priority based on confidence
-        priority = 50
         if report.fix_confidence >= 80:
             priority = random.randint(70, 90)
         elif report.fix_confidence >= 50:
@@ -983,14 +978,13 @@ async def _seed_demo_investigations() -> int:
         else:
             priority = random.randint(20, 39)
 
-        # Promote the first AUTO_FIX candidate to PENDING_REVIEW with a real PR link
+        # Promote the first AUTO_FIX to PENDING_REVIEW with a real PR link
         if (
             not pending_review_seeded
             and report.classification == InvestigationClassification.AUTO_FIX
             and pr_url_for_pending
         ):
-            # Build full telemetry: investigation steps + fix steps, all completed
-            from app.models.investigation import TelemetryStep
+            # Build full telemetry: investigation + fix steps, all completed
             investigation_steps = inv.get_investigation_telemetry()
             fix_steps = inv.get_fix_telemetry()
             full_telemetry: list[TelemetryStep] = []
@@ -1005,7 +999,7 @@ async def _seed_demo_investigations() -> int:
                 playbook_id=_playbook_id,
                 investigation_report=report,
                 classification=report.classification,
-                devin_session_url=candidate.get("session_url", ""),
+                devin_session_url=fixture.get("session_url", ""),
                 pr_url=pr_url_for_pending,
                 started_at=now - random.uniform(30, 120),
                 completed_at=now,
@@ -1014,6 +1008,10 @@ async def _seed_demo_investigations() -> int:
             )
             pending_review_seeded = True
         else:
+            # Mark investigation telemetry steps as completed
+            for step in inv.telemetry:
+                step.status = "completed"
+                step.timestamp = now
             await investigation_store.update_investigation(
                 inv.id,
                 status=InvestigationStatus.INVESTIGATION_COMPLETE,
@@ -1021,7 +1019,7 @@ async def _seed_demo_investigations() -> int:
                 playbook_id=_playbook_id,
                 investigation_report=report,
                 classification=report.classification,
-                devin_session_url=candidate.get("session_url", ""),
+                devin_session_url=fixture.get("session_url", ""),
                 started_at=now - random.uniform(30, 120),
                 completed_at=now,
                 priority=priority,
@@ -1029,7 +1027,7 @@ async def _seed_demo_investigations() -> int:
 
         seeded += 1
 
-    logger.info("Seeded %d investigations from real Devin sessions (%s pending review)", seeded, "1" if pending_review_seeded else "0")
+    logger.info("Seeded %d investigations from static fixtures (%s pending review)", seeded, "1" if pending_review_seeded else "0")
     return seeded
 
 
