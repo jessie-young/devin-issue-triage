@@ -940,38 +940,41 @@ async def _seed_demo_investigations() -> int:
             "role": "pending_review",  # This one becomes the PENDING_REVIEW card
         },
         {
-            "title": "bug: monthly report misses transactions from 28th-31st of each month",
+            "title": "bug: CSV export vulnerable to formula injection via transaction descriptions",
             "body": (
                 "## Bug Report\n\n"
-                "Monthly financial reports are missing transactions that occur after "
-                "the 27th of each month. This affects all months, not just February.\n\n"
+                "When exporting transactions to CSV, user-supplied descriptions are "
+                "inserted into cells without sanitization. If a description starts with "
+                "`=`, `+`, `-`, or `@`, spreadsheet applications interpret it as a "
+                "formula, enabling CSV formula injection attacks.\n\n"
                 "### Steps to Reproduce\n"
-                "1. Create transactions on Jan 28-31\n"
-                "2. Generate January monthly report\n"
-                "3. Transactions from 28th-31st are missing\n\n"
-                "### Root Cause Suspicion\n"
-                "Likely a hardcoded date boundary in the report generator."
+                "1. Create a transaction with description `=HYPERLINK(\"http://evil.com\",\"Click\")`\n"
+                "2. Export transactions to CSV\n"
+                "3. Open CSV in Excel or Google Sheets\n"
+                "4. The cell executes the formula instead of displaying the text\n\n"
+                "### Security Impact\n"
+                "Medium — could be used for phishing or data exfiltration via crafted formulas."
             ),
-            "labels": ["bug"],
+            "labels": ["bug", "security"],
             "classification": InvestigationClassification.AUTO_FIX,
-            "fix_confidence": 96,
-            "priority_range": (75, 90),
+            "fix_confidence": 90,
+            "priority_range": (70, 85),
             "report": InvestigationReport(
                 relevant_files=["src/modules/reporting/service/report.service.ts"],
                 git_history=["17217fe — Marcus Johnson — Dec 20 2025 — Add reporting module with CSV export"],
                 root_cause=(
-                    "The monthly report end date is hardcoded to day 27 instead of using "
-                    "the actual last day of the month. Line: `const endDate = new Date("
-                    "year, month - 1, 27, 23, 59, 59)`. This was likely a copy-paste "
-                    "error from a test fixture."
+                    "CSV export inserts transaction descriptions directly into cells "
+                    "without sanitization. If a description starts with =, +, -, or @, "
+                    "spreadsheet applications interpret it as a formula, enabling CSV "
+                    "formula injection attacks."
                 ),
                 complexity="low",
-                fix_confidence=96,
+                fix_confidence=90,
                 classification=InvestigationClassification.AUTO_FIX,
-                summary="Monthly report misses transactions after the 27th due to hardcoded end date.",
+                summary="CSV export is vulnerable to formula injection. Descriptions need to be sanitized before writing to cells.",
                 recommended_fix=(
-                    "Replace `new Date(year, month - 1, 27, 23, 59, 59)` with "
-                    "`new Date(year, month, 0, 23, 59, 59)` to get the actual last day of the month."
+                    "Prefix any cell value starting with =, +, -, @, tab, or carriage "
+                    "return with a single quote character to prevent formula interpretation."
                 ),
                 related_issues=[],
             ),

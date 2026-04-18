@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Play, CheckCircle2, Clock, AlertTriangle, XCircle, Circle, Loader2, ExternalLink, ChevronDown, ChevronUp, BookOpen, Eye } from 'lucide-react';
+import { Play, CheckCircle2, AlertTriangle, XCircle, Circle, Loader2, ExternalLink, ChevronDown, ChevronUp, BookOpen, Eye } from 'lucide-react';
 import type { Investigation, InvestigationClassification, TelemetryStep } from '../types/investigation';
 
 interface InvestigationCardProps {
@@ -106,18 +106,6 @@ function InvestigationTimeline({ steps }: { steps: TelemetryStep[] }) {
   );
 }
 
-function ElapsedTimer({ startedAt, completedAt }: { startedAt: number | null; completedAt: number | null }) {
-  if (!startedAt) return null;
-  const elapsed = (completedAt || Date.now() / 1000) - startedAt;
-  const m = Math.floor(elapsed / 60);
-  const s = Math.floor(elapsed % 60);
-  return (
-    <div className="flex items-center gap-1 text-xs text-app-text-muted">
-      <Clock className="w-3 h-3" />
-      {String(m).padStart(2, '0')}:{String(s).padStart(2, '0')}
-    </div>
-  );
-}
 
 function RootCauseBlock({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
@@ -175,7 +163,6 @@ export function InvestigationCard({ investigation, onLaunch, onApprove, compact 
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           {classificationBadge(investigation.classification)}
-          <ElapsedTimer startedAt={investigation.started_at} completedAt={investigation.completed_at} />
           {isClickable && (
             expanded
               ? <ChevronUp className="w-3.5 h-3.5 text-app-text-muted" />
