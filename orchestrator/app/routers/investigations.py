@@ -832,60 +832,6 @@ _SEED_TEMPLATES: list[dict] = [
 # This is linked to the seed issue that gets placed in PENDING_REVIEW.
 _DRAFT_PR_URL = "https://github.com/jessie-young/demo-finserv-repo/pull/113"
 
-# ---------------------------------------------------------------------------
-# Confidence / classification overrides for known demo issues.
-#
-# The real Devin sessions sometimes report lower confidence than warranted
-# because the issues are injected test bugs with clear one-line fixes.
-# We override the parsed report values so the dashboard shows a realistic
-# mix of AUTO_FIX (high-confidence), NEEDS_REVIEW, and ESCALATE cards.
-# ---------------------------------------------------------------------------
-_SEED_OVERRIDES: dict[str, dict] = {
-    "transaction pagination returns hasmore": {
-        "classification": "AUTO_FIX",
-        "fix_confidence": 95,
-    },
-    "transaction search breaks on special characters": {
-        "classification": "AUTO_FIX",
-        "fix_confidence": 92,
-    },
-    "concurrent withdrawals allow negative account balance": {
-        "classification": "AUTO_FIX",
-        "fix_confidence": 88,
-    },
-    "rate limiter uses global counter": {
-        "classification": "NEEDS_REVIEW",
-        "fix_confidence": 70,
-    },
-    "reporting api endpoints have no documentation": {
-        "classification": "ESCALATE",
-        "fix_confidence": 30,
-    },
-    "login page returns 403 after session timeout": {
-        "classification": "ESCALATE",
-        "fix_confidence": 20,
-    },
-    "support multi-currency cross-border transfers": {
-        "classification": "NEEDS_REVIEW",
-        "fix_confidence": 55,
-    },
-    "real-time websocket notifications": {
-        "classification": "NEEDS_REVIEW",
-        "fix_confidence": 60,
-    },
-}
-
-
-def _apply_seed_overrides(report: "InvestigationReport", issue_title: str) -> None:
-    """Mutate *report* in-place if the issue title matches a known override."""
-    title_lower = issue_title.lower()
-    for pattern, overrides in _SEED_OVERRIDES.items():
-        if pattern in title_lower:
-            report.fix_confidence = overrides["fix_confidence"]
-            report.classification = InvestigationClassification(overrides["classification"])
-            return
-
-
 async def _seed_demo_investigations() -> int:
     """Seed the dashboard by creating brand-new GitHub issues and pre-populating
     them with investigation results.
