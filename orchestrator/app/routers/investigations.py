@@ -270,7 +270,7 @@ async def launch_fix(req: LaunchFixRequest):
 
 async def _simulate_fix_flow(investigation_id: str) -> None:
     """Background task: progress fix telemetry steps with short delays, then move to PENDING_REVIEW."""
-    fix_step_ids = ["fix_start", "test_write", "test_run", "pr_open", "resolved"]
+    fix_step_ids = ["fix_start", "pr_open", "resolved"]
     try:
         await investigation_store.update_investigation(
             investigation_id,
@@ -832,116 +832,242 @@ _SEED_TEMPLATES: list[dict] = [
 # This is linked to the seed issue that gets placed in PENDING_REVIEW.
 _DRAFT_PR_URL = "https://github.com/jessie-young/demo-finserv-repo/pull/113"
 
-
 async def _seed_demo_investigations() -> int:
-    """Seed the dashboard with existing already-investigated GitHub issues.
+    """Seed the dashboard by creating brand-new GitHub issues and pre-populating
+    them with investigation results.
 
-    Fetches recent Devin sessions that have completed investigation reports,
-    matches them to their GitHub issues, and pre-populates the board with
-    real data.  No new GitHub issues or Devin sessions are created.
-
-    Picks a diverse mix: bugs, features, docs — with varied classifications
-    (AUTO_FIX, NEEDS_REVIEW, ESCALATE) and priorities.
+    Every reset creates fresh issues so that timestamps are always current
+    (no cards older than ~1 minute).  Investigation data comes from static
+    templates that mirror real Devin session output.
     """
     import random
+    from app.models.investigation import TelemetryStep
     from app.services.playbook_router import playbook_router
-    from app.services.session_poller import _parse_investigation_report
 
-    if not devin_client.is_configured:
-        logger.warning("Devin API not configured — cannot seed from real sessions")
-        return 0
-
-    # Fetch recent Devin sessions
-    try:
-        sessions = await devin_client.list_sessions(limit=100)
-    except Exception as e:
-        logger.error("Failed to list Devin sessions for seeding: %s", e)
-        return 0
-
-    # Filter to investigation sessions (title contains 'Investigate')
-    inv_sessions = [
-        s for s in sessions
-        if "investigate" in (s.get("title") or "").lower()
-        and s.get("session_id")
+    # ------------------------------------------------------------------
+    # Seed templates: 5 issues with pre-built investigation reports.
+    # 3 AUTO_FIX (one becomes PENDING_REVIEW), 1 NEEDS_REVIEW, 1 ESCALATE
+    # ------------------------------------------------------------------
+    seed_templates = [
+        {
+            "title": "bug: transaction pagination returns hasMore: true on last page",
+            "body": (
+                "## Bug Report\n\n"
+                "The transactions list endpoint returns `hasMore: true` even on the "
+                "last page, causing infinite scroll loops in the UI.\n\n"
+                "### Steps to Reproduce\n"
+                "1. Create 25 transactions\n"
+                "2. Fetch page 2 with pageSize=20\n"
+                "3. Response shows `hasMore: true` even though there are only 5 items\n\n"
+                "### Expected\n`hasMore: false` on the last page."
+            ),
+            "labels": ["bug"],
+            "classification": InvestigationClassification.AUTO_FIX,
+            "fix_confidence": 95,
+            "priority_range": (70, 90),
+            "report": InvestigationReport(
+                relevant_files=[
+                    "src/modules/transactions/controller/transaction.controller.ts",
+                    "src/modules/transactions/repository/transaction.repository.ts",
+                ],
+                git_history=["97e21d6 — Marcus Johnson — Nov 18 2025 — Implement transactions module with pagination"],
+                root_cause=(
+                    "Off-by-one in hasMore check: uses `page <= totalPages` instead of "
+                    "`page < totalPages`. When page equals totalPages, there are no more "
+                    "pages, but hasMore returns true."
+                ),
+                complexity="low",
+                fix_confidence=95,
+                classification=InvestigationClassification.AUTO_FIX,
+                summary="Pagination off-by-one: hasMore uses <= instead of <, causing infinite scroll loops on the last page.",
+                recommended_fix="Change `hasMore: page <= result.totalPages` to `hasMore: page < result.totalPages` in transaction.controller.ts.",
+                related_issues=[],
+            ),
+            "role": "pending_review",  # This one becomes the PENDING_REVIEW card
+        },
+        {
+            "title": "bug: CSV export vulnerable to formula injection via transaction descriptions",
+            "body": (
+                "## Bug Report\n\n"
+                "When exporting transactions to CSV, user-supplied descriptions are "
+                "inserted into cells without sanitization. If a description starts with "
+                "`=`, `+`, `-`, or `@`, spreadsheet applications interpret it as a "
+                "formula, enabling CSV formula injection attacks.\n\n"
+                "### Steps to Reproduce\n"
+                "1. Create a transaction with description `=HYPERLINK(\"http://evil.com\",\"Click\")`\n"
+                "2. Export transactions to CSV\n"
+                "3. Open CSV in Excel or Google Sheets\n"
+                "4. The cell executes the formula instead of displaying the text\n\n"
+                "### Security Impact\n"
+                "Medium — could be used for phishing or data exfiltration via crafted formulas."
+            ),
+            "labels": ["bug", "security"],
+            "classification": InvestigationClassification.AUTO_FIX,
+            "fix_confidence": 90,
+            "priority_range": (70, 85),
+            "report": InvestigationReport(
+                relevant_files=["src/modules/reporting/service/report.service.ts"],
+                git_history=["17217fe — Marcus Johnson — Dec 20 2025 — Add reporting module with CSV export"],
+                root_cause=(
+                    "CSV export inserts transaction descriptions directly into cells "
+                    "without sanitization. If a description starts with =, +, -, or @, "
+                    "spreadsheet applications interpret it as a formula, enabling CSV "
+                    "formula injection attacks."
+                ),
+                complexity="low",
+                fix_confidence=90,
+                classification=InvestigationClassification.AUTO_FIX,
+                summary="CSV export is vulnerable to formula injection. Descriptions need to be sanitized before writing to cells.",
+                recommended_fix=(
+                    "Prefix any cell value starting with =, +, -, @, tab, or carriage "
+                    "return with a single quote character to prevent formula interpretation."
+                ),
+                related_issues=[],
+            ),
+            "role": "in_progress",
+        },
+        {
+            "title": "bug: JWT refresh tokens are never invalidated after use",
+            "body": (
+                "## Bug Report\n\n"
+                "After refreshing a JWT access token, the old refresh token remains "
+                "valid and can be reused. This creates a token replay vulnerability.\n\n"
+                "### Steps to Reproduce\n"
+                "1. Authenticate and receive a refresh token\n"
+                "2. Use the refresh token to get a new access token\n"
+                "3. Use the same (old) refresh token again — it still works\n\n"
+                "### Security Impact\n"
+                "High — allows session hijacking if a refresh token is compromised."
+            ),
+            "labels": ["bug", "security"],
+            "classification": InvestigationClassification.AUTO_FIX,
+            "fix_confidence": 97,
+            "priority_range": (80, 95),
+            "report": InvestigationReport(
+                relevant_files=["src/modules/auth/service/auth.service.ts"],
+                git_history=["f549345 — Sarah Chen — Oct 18 2025 — Implement auth module with JWT token management"],
+                root_cause=(
+                    "In AuthService.refreshAccessToken(), the old refresh token is never "
+                    "deleted from the refreshTokens set after being used. The comment even "
+                    "notes 'This line is missing' next to the commented-out delete call."
+                ),
+                complexity="low",
+                fix_confidence=97,
+                classification=InvestigationClassification.AUTO_FIX,
+                summary="JWT refresh token reuse vulnerability: old tokens are never invalidated, allowing replay attacks.",
+                recommended_fix=(
+                    "Add `refreshTokens.delete(refreshToken)` before generating the new "
+                    "token pair in the refreshAccessToken method."
+                ),
+                related_issues=[],
+            ),
+            "role": "in_progress",
+        },
+        {
+            "title": "feature: support multi-currency cross-border transfers",
+            "body": (
+                "## Feature Request\n\n"
+                "Our international clients need the ability to send cross-border "
+                "transfers in different currencies. Currently the system only supports "
+                "single-currency (USD) transactions.\n\n"
+                "### Requirements\n"
+                "- FX rate lookup at transfer initiation time\n"
+                "- Store both source and destination currency amounts\n"
+                "- Display conversion details in the transaction history\n"
+                "- Support at least USD, EUR, GBP, JPY\n\n"
+                "### Business Context\n"
+                "This is blocking our expansion into the EU market."
+            ),
+            "labels": ["enhancement", "feature"],
+            "classification": InvestigationClassification.NEEDS_REVIEW,
+            "fix_confidence": 55,
+            "priority_range": (40, 60),
+            "report": InvestigationReport(
+                relevant_files=[
+                    "src/modules/transactions/repository/transaction.repository.ts",
+                    "src/shared/types/index.ts",
+                    "src/modules/accounts/service/account.service.ts",
+                    "src/modules/payments/service/payment.service.ts",
+                ],
+                git_history=[],
+                root_cause=(
+                    "The platform is architected for single-currency flows end-to-end: "
+                    "payments, accounts, transactions, and refunds all assume one currency "
+                    "per record with no FX step. The feature is feasible but requires a "
+                    "new FX module, schema extensions, and several product/architecture "
+                    "decisions (provider, fees, rate-lock, rounding, compliance)."
+                ),
+                complexity="medium",
+                fix_confidence=55,
+                classification=InvestigationClassification.NEEDS_REVIEW,
+                summary=(
+                    "The platform is single-currency end-to-end. Shipping multi-currency "
+                    "requires a new FX module, schema extensions, and product decisions. "
+                    "Needs human review before proceeding."
+                ),
+                recommended_fix="",
+                related_issues=[],
+            ),
+            "role": "in_progress",
+        },
+        {
+            "title": "chore: reporting API endpoints have no documentation",
+            "body": (
+                "## Documentation Gap\n\n"
+                "The `/api/reports/*` endpoints are fully implemented but have no "
+                "OpenAPI annotations. Partners cannot discover or integrate with the "
+                "reporting API because it doesn't appear in the generated API docs.\n\n"
+                "### Affected Endpoints\n"
+                "- `GET /api/reports/monthly`\n"
+                "- `GET /api/reports/quarterly`\n"
+                "- `GET /api/reports/export/csv`\n"
+                "- `POST /api/reports/custom`\n\n"
+                "### Requested\n"
+                "Add `@ApiOperation` and `@ApiResponse` decorators to all report "
+                "controller methods."
+            ),
+            "labels": ["documentation", "chore"],
+            "classification": InvestigationClassification.ESCALATE,
+            "fix_confidence": 30,
+            "priority_range": (20, 39),
+            "report": InvestigationReport(
+                relevant_files=[
+                    "src/server.ts",
+                    "src/modules/reporting/controller/report.controller.ts",
+                    "src/modules/reporting/service/report.service.ts",
+                ],
+                git_history=[],
+                root_cause=(
+                    "The reporting controller has zero OpenAPI/Swagger annotations because "
+                    "the project has no OpenAPI infrastructure at all. The listed endpoints "
+                    "and decorators are NestJS-specific but this is an Express codebase. "
+                    "A human should confirm the intended doc framework before implementation."
+                ),
+                complexity="medium",
+                fix_confidence=30,
+                classification=InvestigationClassification.ESCALATE,
+                summary=(
+                    "The repo has no OpenAPI tooling at all. The issue as written cannot "
+                    "be executed literally. Requires senior engineering decision on doc "
+                    "framework and real endpoint list."
+                ),
+                recommended_fix=(
+                    "Add swagger-jsdoc and swagger-ui-express. Confirm intended endpoints "
+                    "and doc framework with the reporter before implementation."
+                ),
+                related_issues=[],
+            ),
+            "role": "in_progress",
+        },
     ]
 
-    # Try to get a diverse set — collect sessions by issue type
+    # ------------------------------------------------------------------
+    # Create fresh GitHub issues and seed the board
+    # ------------------------------------------------------------------
+    now = time.time()
     seeded = 0
-    seen_titles: set[str] = set()  # deduplicate by normalized title
-    target_count = 5
-    candidates: list[dict] = []  # list of {session, messages, report, issue_data}
 
-    for session_info in inv_sessions:
-        if len(candidates) >= target_count * 2:  # gather extra for diversity selection
-            break
-
-        session_id = session_info["session_id"]
-
-        # Extract issue number from session title
-        title = session_info.get("title", "")
-        issue_match = re.search(r"#(\d+)", title)
-        if not issue_match:
-            continue
-        issue_number = int(issue_match.group(1))
-
-        try:
-            messages = await devin_client.get_session_messages(session_id)
-        except Exception:
-            continue
-
-        # Only use sessions where Devin produced a full report
-        devin_messages = [m for m in messages if m.get("source") != "user"]
-        report = _parse_investigation_report(devin_messages)
-        if not report or not report.classification:
-            continue
-
-        # Fetch the actual GitHub issue data
-        try:
-            gh_issue = await github_service.get_issue(issue_number)
-        except Exception:
-            continue
-        if not gh_issue:
-            continue
-
-        # Deduplicate by normalized title (skip duplicates of same bug)
-        norm_title = gh_issue.get("title", "").lower().strip()
-        if norm_title in seen_titles:
-            continue
-        seen_titles.add(norm_title)
-
-        candidates.append({
-            "session_id": session_id,
-            "session_url": session_info.get("url", ""),
-            "report": report,
-            "issue_number": issue_number,
-            "issue_title": gh_issue.get("title", ""),
-            "issue_body": gh_issue.get("body", "") or "",
-            "issue_url": gh_issue.get("html_url", ""),
-            "issue_labels": [
-                l["name"] if isinstance(l, dict) else l
-                for l in gh_issue.get("labels", [])
-            ],
-        })
-
-    # Select a diverse mix: try to get different classifications and issue types
-    selected: list[dict] = []
-    by_classification: dict[str, list[dict]] = {}
-    for c in candidates:
-        cls_val = c["report"].classification.value if c["report"].classification else "UNKNOWN"
-        by_classification.setdefault(cls_val, []).append(c)
-
-    # Take at least one from each classification if available
-    for cls_name, items in by_classification.items():
-        if len(selected) < target_count and items:
-            selected.append(items.pop(0))
-
-    # Fill remaining slots from all candidates
-    remaining = [c for c in candidates if c not in selected]
-    random.shuffle(remaining)
-    while len(selected) < target_count and remaining:
-        selected.append(remaining.pop(0))
-
-    # Look up open PRs on the demo repo so we can link one to a PENDING_REVIEW card
+    # Look up an open PR for the PENDING_REVIEW card
     pr_url_for_pending: str | None = None
     try:
         open_prs = await github_service.list_pull_requests(state="open", per_page=10)
@@ -950,47 +1076,47 @@ async def _seed_demo_investigations() -> int:
     except Exception:
         pass
 
-    # Seed each selected candidate
-    now = time.time()
-    pending_review_seeded = False
-    for candidate in selected:
+    for template in seed_templates:
+        # Create a brand-new GitHub issue so the timestamp is always fresh
+        try:
+            gh_issue = await github_service.create_issue(
+                title=template["title"],
+                body=template["body"],
+                labels=template["labels"],
+            )
+            if not gh_issue:
+                logger.warning("Failed to create seed issue '%s': API returned None", template["title"])
+                continue
+            issue_number = gh_issue["number"]
+            issue_url = gh_issue["html_url"]
+        except Exception as e:
+            logger.warning("Failed to create seed issue '%s': %s", template["title"], e)
+            continue
+
         inv = await investigation_store.create_investigation(
-            issue_number=candidate["issue_number"],
-            issue_title=candidate["issue_title"],
-            issue_body=candidate["issue_body"],
-            issue_url=candidate["issue_url"],
-            issue_labels=candidate["issue_labels"],
+            issue_number=issue_number,
+            issue_title=template["title"],
+            issue_body=template["body"],
+            issue_url=issue_url,
+            issue_labels=template["labels"],
         )
 
-        report = candidate["report"]
+        report = template["report"]
 
         # Resolve playbook
         _issue_type, _playbook_id, _playbook_name = playbook_router.resolve_playbook(
-            candidate["issue_title"], candidate["issue_labels"]
+            template["title"], template["labels"]
         )
 
-        # Mark all investigation telemetry steps as completed
+        # Mark all investigation telemetry steps as completed with fresh timestamps
         for step in inv.telemetry:
             step.status = "completed"
             step.timestamp = now
 
-        # Assign priority based on confidence
-        priority = 50
-        if report.fix_confidence >= 80:
-            priority = random.randint(70, 90)
-        elif report.fix_confidence >= 50:
-            priority = random.randint(40, 69)
-        else:
-            priority = random.randint(20, 39)
+        priority = random.randint(*template["priority_range"])
 
-        # Promote the first AUTO_FIX candidate to PENDING_REVIEW with a real PR link
-        if (
-            not pending_review_seeded
-            and report.classification == InvestigationClassification.AUTO_FIX
-            and pr_url_for_pending
-        ):
+        if template["role"] == "pending_review" and pr_url_for_pending:
             # Build full telemetry: investigation steps + fix steps, all completed
-            from app.models.investigation import TelemetryStep
             investigation_steps = inv.get_investigation_telemetry()
             fix_steps = inv.get_fix_telemetry()
             full_telemetry: list[TelemetryStep] = []
@@ -1004,15 +1130,13 @@ async def _seed_demo_investigations() -> int:
                 playbook_name=_playbook_name,
                 playbook_id=_playbook_id,
                 investigation_report=report,
-                classification=report.classification,
-                devin_session_url=candidate.get("session_url", ""),
+                classification=template["classification"],
                 pr_url=pr_url_for_pending,
-                started_at=now - random.uniform(30, 120),
+                started_at=now - random.uniform(10, 40),
                 completed_at=now,
                 priority=priority,
                 telemetry=full_telemetry,
             )
-            pending_review_seeded = True
         else:
             await investigation_store.update_investigation(
                 inv.id,
@@ -1020,16 +1144,28 @@ async def _seed_demo_investigations() -> int:
                 playbook_name=_playbook_name,
                 playbook_id=_playbook_id,
                 investigation_report=report,
-                classification=report.classification,
-                devin_session_url=candidate.get("session_url", ""),
-                started_at=now - random.uniform(30, 120),
+                classification=template["classification"],
+                started_at=now - random.uniform(10, 40),
                 completed_at=now,
                 priority=priority,
             )
 
+        # Post investigation comment to the GitHub issue so it looks like
+        # a real Devin investigation was performed.
+        try:
+            await github_service.post_investigation_comment(
+                issue_number=issue_number,
+                investigation_id=inv.id,
+                report=report,
+                playbook_name=_playbook_name,
+                playbook_id=_playbook_id,
+            )
+        except Exception as e:
+            logger.warning("Failed to post seed comment on #%s: %s", issue_number, e)
+
         seeded += 1
 
-    logger.info("Seeded %d investigations from real Devin sessions (%s pending review)", seeded, "1" if pending_review_seeded else "0")
+    logger.info("Seeded %d fresh investigations", seeded)
     return seeded
 
 
