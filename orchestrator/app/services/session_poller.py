@@ -33,9 +33,7 @@ TELEMETRY_KEYWORDS = {
 }
 
 FIX_TELEMETRY_KEYWORDS = {
-    "fix_start": ["implementing", "writing fix", "changing", "updating", "modifying"],
-    "test_write": ["test", "regression", "spec", "describe(", "it(", "expect("],
-    "test_run": ["npm test", "running test", "test suite", "PASS", "FAIL", "jest"],
+    "fix_start": ["implementing", "writing fix", "changing", "updating", "modifying", "test", "regression"],
     "pr_open": ["pull request", "PR", "opening pr", "created pr", "branch"],
     "resolved": ["complete", "done", "finished", "merged"],
 }
