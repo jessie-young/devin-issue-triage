@@ -1204,6 +1204,19 @@ async def _seed_demo_investigations() -> int:
                 priority=priority,
             )
 
+        # Post investigation comment to the GitHub issue so it looks like
+        # a real Devin investigation was performed.
+        try:
+            await github_service.post_investigation_comment(
+                issue_number=issue_number,
+                investigation_id=inv.id,
+                report=report,
+                playbook_name=_playbook_name,
+                playbook_id=_playbook_id,
+            )
+        except Exception as e:
+            logger.warning("Failed to post seed comment on #%s: %s", issue_number, e)
+
         seeded += 1
 
     logger.info("Seeded %d fresh investigations", seeded)
